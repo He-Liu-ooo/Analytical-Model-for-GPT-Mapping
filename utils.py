@@ -2,8 +2,8 @@ class Stats:
     def __init__(self):
         self.latency = latency()
         
-    def dump(self):
-        print("---------- dump stats -----------")
+    def dump(self, mode):
+        print("------------ dump " + mode + " stats ------------")
         self.latency.dump()
     
 class latency:
@@ -28,6 +28,9 @@ class latency:
         self.vec_wb = 0
         self.vec_wb_sram = 0
         
+    def sum(self):
+        return (self.cal + self.psum_vec_cal + self.psum_cube_cal_N + self.psum_cube_loading + self.weight_loading + self.psum_cube_wb + self.vec_wb + self.vec_wb_sram) 
+    
     def dump(self):
         print("---------- dump latencys -----------")
         print(f"cal: {self.cal}")
