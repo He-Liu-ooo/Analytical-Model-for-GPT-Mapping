@@ -43,8 +43,11 @@ def argparser():
     # ALGORITHM
     ap.add_argument('--P', type = float, default = 0.3,
                     help = 'percentage of job number that determines the maximum and minimum boundary of job number a die can hold')
-    ap.add_argument('--MH-alg-mode', type = int, default = 1,
+    # TODO this option can be replaced by adjusting P to certain extreme values
+    ap.add_argument('--MH-alg-distr-mode', type = int, default = 1,
                     help = '0 for origin distribution algorithm, 1 for distribution algorithm with boundary')
+    ap.add_argument('--MH-alg-level-mode', type = int, default = 1,
+                    help = '0 for implementation the load-balance algorithm in die level, 1 for core level')
 
     # PARAM
     ap.add_argument('--cal-latency', type = int, default = 0.5,
@@ -90,8 +93,12 @@ def init_requests_pool():
             s = s.strip('\n')
             s = s.split(',')
             requests_pool.append([False, int(s[0]), int(s[1])])
-    
-    return requests_pool
+            
+    s_sum = 0        
+    for r in requests_pool:
+        s_sum += (r[1] + r[2])
+        
+    return (requests_pool, s_sum / len(requests_pool))
         
 def requests_done(seq_len_table):
     done = True
@@ -393,7 +400,8 @@ def getList(arr, delta, distance):
     return [], -1  
 # endref
 
-def find_average_method1(seq_len_table, group_num, die_idx_table, J_max=0, J_min=0, MH_alg_mode=0):
+def find_average_method1(seq_len_table, group_num, group_idx_table, J_max=0, J_min=0, MH_alg_distr_mode=0):
+    # print(f"group_num: {group_num}")
     seq_len_table_copy = copy.deepcopy(seq_len_table)
     for i in range(len(seq_len_table_copy)):
         seq_len_table_copy[i] += (i,)
@@ -409,7 +417,7 @@ def find_average_method1(seq_len_table, group_num, die_idx_table, J_max=0, J_min
         avg_arr.append([])
         sum_arr.append(0)
     
-    if MH_alg_mode == 0:
+    if MH_alg_distr_mode == 0:
         # origin distribution
         for i in range(len(ordered_seq_len_table)):
             v = ordered_seq_len_table[i][2]
@@ -417,12 +425,12 @@ def find_average_method1(seq_len_table, group_num, die_idx_table, J_max=0, J_min
                 sum_arr[j] = sum(avg_arr[j])
             idx = sum_arr.index(min(sum_arr))
             avg_arr[idx].extend([v])
-            die_idx_table[ordered_seq_len_table[i][4]] = idx
+            group_idx_table[ordered_seq_len_table[i][4]] = idx
     else:
         # distribution with boundary
-        die_job_table = []
+        group_job_table = []
         for i in range(group_num):
-            die_job_table.append(0)
+            group_job_table.append(0)
             
         for i in range(len(ordered_seq_len_table)):
             v = ordered_seq_len_table[i][2]
@@ -433,15 +441,15 @@ def find_average_method1(seq_len_table, group_num, die_idx_table, J_max=0, J_min
             # corersponding idx for the sorted sum_arr
             sum_arr_sort_idx = [x[0] for x in sum_arr_sort_with_idx]
             tmp_idx = 1
-            while die_job_table[idx] == J_max:
+            while group_job_table[idx] == J_max:
                 idx = sum_arr_sort_idx[tmp_idx]
                 tmp_idx += 1
                 
             avg_arr[idx].extend([v])
-            die_idx_table[ordered_seq_len_table[i][4]] = idx
-            die_job_table[idx] += 1     
+            group_idx_table[ordered_seq_len_table[i][4]] = idx
+            group_job_table[idx] += 1     
 
-def find_average_with_foundation_method1(new_seq_len_table, KV_buffering_amount_list, die_idx_table, die_job_table, new_seq_len_table_id, J_max=0, J_min=0, MH_alg_mode=0):
+def find_average_with_foundation_method1(new_seq_len_table, KV_buffering_amount_list, die_idx_table, die_job_table, new_seq_len_table_id, J_max=0, J_min=0, MH_alg_distr_mode=0):
     new_seq_len_table_copy = copy.deepcopy(new_seq_len_table)
     
     for i in range(len(new_seq_len_table_copy)):
@@ -458,7 +466,7 @@ def find_average_with_foundation_method1(new_seq_len_table, KV_buffering_amount_
         avg_arr.append([])
         sum_arr.append(0)
     
-    if MH_alg_mode == 0:
+    if MH_alg_distr_mode == 0:
         # origin distribution
         for i in range(len(ordered_new_seq_len_table)):
             v = ordered_new_seq_len_table[i][2]
@@ -537,7 +545,7 @@ def check_die_job_table(die_job_table, J_min):
             return False
     return True
 
-def MH_latency(die_num, core_num, seq_len_table, die_idx_table, B, H, sram2_height, mac_lane, mac_num, head_embedding_dim, J_max=0, J_min=0, MH_alg_mode=0, debug_on=False):
+def MH_latency(die_num, core_num, seq_len_table, group_idx_table, B, H, sram2_height, mac_lane, mac_num, head_embedding_dim, J_max=0, J_min=0, MH_alg_distr_mode=0, MH_alg_level_mode=0, debug_on=False):
     """ 
     seq_len_table: (if this time this job is in prefill stage, requests_id, sequence length, done?)
     """
@@ -545,28 +553,31 @@ def MH_latency(die_num, core_num, seq_len_table, die_idx_table, B, H, sram2_heig
     
     """ initialization """
     seg_latencys = latency()
-    latencys = [latency()] * die_num
+    latencys = []
     KV_buffering_amount_list = []
-    # record job number within each die
-    die_job_table = []
-    for i in range(die_num):
-        KV_buffering_amount_list.append(0)
-        die_job_table.append(0)
+    # record job number within each die/core
+    group_job_table = []
     
-    """ record current  """
+    if MH_alg_level_mode == 0:
+        for i in range(die_num):
+            latencys.append(latency())
+            KV_buffering_amount_list.append(0)
+            group_job_table.append(0)
+    else:
+        for i in range(core_num):
+            latencys.append(latency())
+            KV_buffering_amount_list.append(0)
+            group_job_table.append(0)
+    
+    """ record current """
     for i in range(B):
-        # record each die's K/V buffering status
+        # record each core's K/V buffering status
         if (seq_len_table[i][0] == False) and (seq_len_table[i][3] == False):
             # if in generation stage(since prompts in prefill stage are new jobs) and this is a live job
-            KV_buffering_amount_list[die_idx_table[i]] += seq_len_table[i][2]
-            die_job_table[die_idx_table[i]] += 1
-            
-    # print("------ new round -------")
-    # print(f"KV_buffering_amount_list before: {KV_buffering_amount_list}")
-    # print(die_idx_table)
-    # print(seq_len_table)
-        
-    """ assign new Q-As' K/V location """
+            KV_buffering_amount_list[group_idx_table[i]] += seq_len_table[i][2]
+            group_job_table[group_idx_table[i]] += 1
+    
+    """ assign new Q-As's K/V location """
     new_seq_len_table = [x for i, x in enumerate(seq_len_table) if (seq_len_table[i][0] == True)]
     new_seq_len_table_id = [i for i, x in enumerate(seq_len_table) if (seq_len_table[i][0] == True)]
     
@@ -576,55 +587,247 @@ def MH_latency(die_num, core_num, seq_len_table, die_idx_table, B, H, sram2_heig
         print("new seq len table")
         for e in new_seq_len_table:
             print(e)    
-            
-    # if at the very beginning  
+
+    # if at the very beginning
     if len(new_seq_len_table) == B:
-        find_average_method1(seq_len_table, die_num, die_idx_table, J_max, J_min, MH_alg_mode)
-        # if debug_on:
-        #     for i in seq_len_table:
-        #         print(i)
-    # if there are new jobsb
+        find_average_method1(seq_len_table, die_num if MH_alg_level_mode == 0 else core_num, group_idx_table, J_max, J_min, 1)
     elif len(new_seq_len_table) >= 1:
-        # TODO Implement smarter algorithm
-        # for new_jobs in new_seq_len_table:
-        #     die_idx = KV_buffering_amount_list.index(min(KV_buffering_amount_list))
-        #     KV_buffering_amount_list[die_idx] += new_jobs[2]
-        #     die_idx_table[new_seq_len_table_id[new_jobs_idx]] = die_idx
-        #     new_jobs_idx += 1
-        find_average_with_foundation_method1(new_seq_len_table, KV_buffering_amount_list, die_idx_table, die_job_table, new_seq_len_table_id, J_max, J_min, MH_alg_mode)
+        find_average_with_foundation_method1(new_seq_len_table, KV_buffering_amount_list, group_idx_table, group_job_table, new_seq_len_table_id, J_max, J_min, MH_alg_distr_mode)
     # if there is no new job, no redistribution is needed
-        
+    
     if debug_on:
         print(f"KV_buffering_amount_list after: {KV_buffering_amount_list}")
-        # print("---------- die_idx_table -----------")
-        # for d in die_idx_table:
-        #     print(d)
+        
+    # print(f"max:{max(KV_buffering_amount_list)}, min:{min(KV_buffering_amount_list)}")
     print(f"{max(KV_buffering_amount_list)},{min(KV_buffering_amount_list)}")
+    
+    #     """ load-balance algorithm performed in die-level """
+        
+    #     """ initialization """
+    #     seg_latencys = latency()
+    #     latencys = [latency()] * die_num
+    #     KV_buffering_amount_list = []
+    #     # record job number within each die
+    #     die_job_table = []
+    #     for i in range(die_num):
+    #         KV_buffering_amount_list.append(0)
+    #         die_job_table.append(0)
+        
+    #     """ record current  """
+    #     for i in range(B):
+    #         # record each die's K/V buffering status
+    #         if (seq_len_table[i][0] == False) and (seq_len_table[i][3] == False):
+    #             # if in generation stage(since prompts in prefill stage are new jobs) and this is a live job
+    #             KV_buffering_amount_list[die_idx_table[i]] += seq_len_table[i][2]
+    #             die_job_table[die_idx_table[i]] += 1
+                
+    #     # print("------ new round -------")
+    #     # print(f"KV_buffering_amount_list before: {KV_buffering_amount_list}")
+    #     # print(die_idx_table)
+    #     # print(seq_len_table)
+            
+    #     """ assign new Q-As' K/V location """
+    #     new_seq_len_table = [x for i, x in enumerate(seq_len_table) if (seq_len_table[i][0] == True)]
+    #     new_seq_len_table_id = [i for i, x in enumerate(seq_len_table) if (seq_len_table[i][0] == True)]
+        
+    
+                
+    #     # if at the very beginning  
+    #     if len(new_seq_len_table) == B:
+    #         find_average_method1(seq_len_table, die_num, die_idx_table, J_max, J_min, MH_alg_distr_mode)
+    #         # if debug_on:
+    #         #     for i in seq_len_table:
+    #         #         print(i)
+    #     # if there are new jobsb
+    #     elif len(new_seq_len_table) >= 1:
+    #         # TODO Implement smarter algorithm
+    #         # for new_jobs in new_seq_len_table:
+    #         #     die_idx = KV_buffering_amount_list.index(min(KV_buffering_amount_list))
+    #         #     KV_buffering_amount_list[die_idx] += new_jobs[2]
+    #         #     die_idx_table[new_seq_len_table_id[new_jobs_idx]] = die_idx
+    #         #     new_jobs_idx += 1
+    #         find_average_with_foundation_method1(new_seq_len_table, KV_buffering_amount_list, die_idx_table, die_job_table, new_seq_len_table_id, J_max, J_min, MH_alg_distr_mode)
+    #     # if there is no new job, no redistribution is needed
+            
+    #     if debug_on:
+    #         print(f"KV_buffering_amount_list after: {KV_buffering_amount_list}")
+    #         # print("---------- die_idx_table -----------")
+    #         # for d in die_idx_table:
+    #         #     print(d)
+    #     print(f"{max(KV_buffering_amount_list)},{min(KV_buffering_amount_list)}")
+            
+        # """ begin MH execution """
+        # for i in range(B):
+            
+        #     if seq_len_table[i][3] == False:
+        #         # if this job hasn't done yet
+                
+        #         # this job assigned to which die    
+        #         die_idx = die_idx_table[i]
+                
+        #         # if debug_on:
+        #         #     print(f"----------------- token {i} - die {die_idx} ------------------")
+                
+        #         # this job's overall generated sequence length
+        #         s = seq_len_table[i][2]
+                
+        #         # FIXME consider what if H cannot be divided by core_num
+        #         rounds = math.ceil(H / core_num)
+
+        #         if seq_len_table[i][0]:
+        #             # if debug_on:
+        #             #     print(f"------ prefill --------")
+                    
+        #             # if prefill
+        #             # FIXME  Should consider the case that SRAM can hold K/V but not twice the capacity of s*s matrix
+        #             """ MH1 calculation """
+        #             if sram2_height * mac_num < head_embedding_dim * s:
+        #                 # if SRAM cannot hold K/V
+        #                 seg_num = math.ceil(s / (sram2_height / math.ceil(head_embedding_dim / mac_num)))
+        #                 weights_col_per_seg = math.ceil(s / seg_num)
+        #                 weights_maclane_per_seg = math.ceil(weights_col_per_seg / mac_lane)
+        #                 (weights_col_per_sram_list, _) = calculate_weights_col_assignment(seg_num, weights_maclane_per_seg, mac_lane, s)
+        #                 # if debug_on:
+        #                 #     print(f"MH1, SRAM cannot hold K/V")
+        #                 #     print(f"MH1, weights_col_per_sram_list: {weights_col_per_sram_list}")
+                        
+        #                 psum_num = math.ceil(head_embedding_dim / mac_num)
+        #                 for weights_col in weights_col_per_sram_list:
+        #                     # FIXME
+        #                     for IA_rows in weights_col_per_sram_list:
+        #                         # seg_latencys = matrix_matrix_mul_latency(IA_rows, head_embedding_dim, weights_col, mac_lane, mac_num, psum_num, rounds, 0, debug_on)
+        #                         seg_latencys = matrix_matrix_mul_latency(IA_rows, head_embedding_dim, weights_col, mac_lane, mac_num, psum_num, rounds, 0)
+        #                         latencys[die_idx] = latency_acc2(seg_latencys, latencys[die_idx])
+                        
+        #             else:
+        #                 # if SRAM can hold K/V
+        #                 # FIXME Here we assume head_embedding_dim can be fully divided by mac_num
+        #                 # if debug_on:
+        #                 #     print(f"MH1, SRAM can hold K/V")
+                            
+        #                 psum_num = math.ceil(head_embedding_dim / mac_num)
+        #                 # seg_latencys = matrix_matrix_mul_latency(s, head_embedding_dim, s, mac_lane, mac_num, psum_num, rounds, 0, (sram2_height * mac_num >= 2 * head_embedding_dim * s), debug_on)
+        #                 seg_latencys = matrix_matrix_mul_latency(s, head_embedding_dim, s, mac_lane, mac_num, psum_num, rounds, 0, (sram2_height * mac_num >= 2 * head_embedding_dim * s))
+        #                 latencys[die_idx] = latency_acc2(seg_latencys, latencys[die_idx])
+
+                    
+        #             """ MH2 calculation """
+        #             if sram2_height * mac_num < head_embedding_dim * s:
+        #                 # FIXME consider the case cannot hold A
+        #                 # if SRAM cannot hold K/V
+        #                 # FIXME here we assume s is less then 4096
+        #                 seg_num = math.ceil(head_embedding_dim / math.floor(sram2_height / math.ceil(s / mac_num)))    
+        #                 weights_col_per_seg = math.ceil(head_embedding_dim / seg_num)
+        #                 weights_maclane_per_seg = math.ceil(weights_col_per_seg / mac_lane)
+        #                 (weights_col_per_sram_list, _) = calculate_weights_col_assignment(seg_num, weights_maclane_per_seg, mac_lane, head_embedding_dim)  
+        #                 # if debug_on:
+        #                 #     print(f"MH2, SRAM cannot hold K/V")
+        #                 #     print(f"MH2, weights_col_per_sram_list: {weights_col_per_sram_list}")
+                            
+        #                 # if debug_flag:
+        #                 #     print(f"MH2 weights_col_list: {weights_col_per_sram_list}")
+        #                 psum_num = math.ceil(s / mac_num)
+        #                 for weights_col in weights_col_per_sram_list:
+        #                     for IA_rows in weights_col_per_sram_list:
+        #                     # FIXME
+        #                         # seg_latencys = matrix_matrix_mul_latency(IA_rows, s, weights_col, mac_lane, mac_num, psum_num, rounds, 1, debug_on)    
+        #                         seg_latencys = matrix_matrix_mul_latency(IA_rows, s, weights_col, mac_lane, mac_num, psum_num, rounds, 1)    
+        #                         latencys[die_idx] = latency_acc2(seg_latencys, latencys[die_idx])
+                        
+        #             else:
+        #                 # if SRAM can hold K/V
+        #                 # if debug_on:
+        #                 #     print(f"MH2, SRAM can hold K/V")
+                            
+        #                 psum_num = math.ceil(s / mac_num)
+        #                 # seg_latencys = matrix_matrix_mul_latency(s, s, head_embedding_dim, mac_lane, mac_num, psum_num, rounds, 1, True, debug_on)
+        #                 seg_latencys = matrix_matrix_mul_latency(s, s, head_embedding_dim, mac_lane, mac_num, psum_num, rounds, 1, True)
+        #                 latencys[die_idx] = latency_acc2(seg_latencys, latencys[die_idx])
+                    
+        #         else: 
+        #             # if debug_on:
+        #             #     print(f"-------- generation ----------")
+                        
+        #             # if generation
+        #             if sram2_height * mac_num < head_embedding_dim * s:
+        #                 # SRAM cannot hold K/V
+        #                 # if debug_on:
+        #                 #     print("sram cannot hold K/V")
+                            
+        #                 # if SRAM2 cannot hold entire K at the same time
+        #                 """ MH1 calculation """
+        #                 seg_num = math.ceil(s / (sram2_height / math.ceil(head_embedding_dim / mac_num)))
+        #                 weights_col_per_seg = math.ceil(s / seg_num)
+        #                 weights_maclane_per_seg = math.ceil(weights_col_per_seg / mac_lane)
+        #                 (weights_col_per_sram_list, _) = calculate_weights_col_assignment(seg_num, weights_maclane_per_seg, mac_lane, s)
+                        
+        #                 # if debug_on:
+        #                 #     print(f"MH1 weights_col_per_sram_list: {weights_col_per_sram_list}")
+                            
+        #                 psum_num = math.ceil(head_embedding_dim / mac_num)
+        #                 for weights_col in weights_col_per_sram_list:
+        #                     # FIXME
+        #                     # seg_latencys = vector_matrix_mul_latency(head_embedding_dim, weights_col, mac_lane, mac_num, psum_num, rounds, 0, debug_on)
+        #                     seg_latencys = vector_matrix_mul_latency(head_embedding_dim, weights_col, mac_lane, mac_num, psum_num, rounds, 0)
+        #                     latencys[die_idx] = latency_acc2(seg_latencys, latencys[die_idx])
+                            
+        #                 """ MH2 calcualtion """   
+        #                 # FIXME here we assume s is less then 4096
+        #                 seg_num = math.ceil(head_embedding_dim / math.floor(sram2_height / math.ceil(s / mac_num)))    
+        #                 weights_col_per_seg = math.ceil(head_embedding_dim / seg_num)
+        #                 weights_maclane_per_seg = math.ceil(weights_col_per_seg / mac_lane)
+        #                 (weights_col_per_sram_list, _) = calculate_weights_col_assignment(seg_num, weights_maclane_per_seg, mac_lane, head_embedding_dim)  
+                        
+        #                 # if debug_on:
+        #                 #     print(f"MH2 weights_col_per_sram_list: {weights_col_per_sram_list}")
+                            
+        #                 psum_num = math.ceil(s / mac_num)
+        #                 for weights_col in weights_col_per_sram_list:
+        #                     # FIXME
+        #                     # seg_latencys = vector_matrix_mul_latency(s, weights_col, mac_lane, mac_num, psum_num, rounds, 1, debug_on)    
+        #                     seg_latencys = vector_matrix_mul_latency(s, weights_col, mac_lane, mac_num, psum_num, rounds, 1)    
+        #                     latencys[die_idx] = latency_acc2(seg_latencys, latencys[die_idx])
+                            
+        #             else:
+        #                 # SRAM can hold K/V
+        #                 # if debug_on:
+        #                 #     print("sram can hold K/V")
+                            
+        #                 """ MH1 calculation """
+        #                 # FIXME Here we assume head_embedding_dim can be fully divided by mac_num
+        #                 psum_num = math.ceil(head_embedding_dim / mac_num)
+        #                 # seg_latencys = vector_matrix_mul_latency(head_embedding_dim, s, mac_lane, mac_num, psum_num, rounds, 0, debug_on)
+        #                 seg_latencys = vector_matrix_mul_latency(head_embedding_dim, s, mac_lane, mac_num, psum_num, rounds, 0)
+        #                 latencys[die_idx] = latency_acc2(seg_latencys, latencys[die_idx])
+                        
+        #                 """ MH2 calculation """
+        #                 psum_num = math.ceil(s / mac_num)
+        #                 # seg_latencys = vector_matrix_mul_latency(s, head_embedding_dim, mac_lane, mac_num, psum_num, rounds, 1, debug_on)
+        #                 seg_latencys = vector_matrix_mul_latency(s, head_embedding_dim, mac_lane, mac_num, psum_num, rounds, 1)
+        #                 latencys[die_idx] = latency_acc2(seg_latencys, latencys[die_idx])      
         
     """ begin MH execution """
     for i in range(B):
-         
         if seq_len_table[i][3] == False:
-            # if this job hasn't done yet
+            # if this is a live job
             
-            # this job assigned to which die    
-            die_idx = die_idx_table[i]
-            
-            # if debug_on:
-            #     print(f"----------------- token {i} - die {die_idx} ------------------")
+            # this job is assigned to which core
+            group_idx = group_idx_table[i]
             
             # this job's overall generated sequence length
             s = seq_len_table[i][2]
             
-            # FIXME consider what if H cannot be divided by core_num
-            rounds = math.ceil(H / core_num)
-
+            # how many rounds(heads) should a group process
+            if MH_alg_level_mode == 0:
+                # FIXME consider what if H cannot be divided by core_num
+                rounds = math.ceil(H / core_num)
+            else:
+                rounds = math.ceil(H / die_num)
+            
             if seq_len_table[i][0]:
-                # if debug_on:
-                #     print(f"------ prefill --------")
-                
-                # if prefill
+                """ prefill stage """
                 # FIXME  Should consider the case that SRAM can hold K/V but not twice the capacity of s*s matrix
+                
                 """ MH1 calculation """
                 if sram2_height * mac_num < head_embedding_dim * s:
                     # if SRAM cannot hold K/V
@@ -632,30 +835,24 @@ def MH_latency(die_num, core_num, seq_len_table, die_idx_table, B, H, sram2_heig
                     weights_col_per_seg = math.ceil(s / seg_num)
                     weights_maclane_per_seg = math.ceil(weights_col_per_seg / mac_lane)
                     (weights_col_per_sram_list, _) = calculate_weights_col_assignment(seg_num, weights_maclane_per_seg, mac_lane, s)
-                    # if debug_on:
-                    #     print(f"MH1, SRAM cannot hold K/V")
-                    #     print(f"MH1, weights_col_per_sram_list: {weights_col_per_sram_list}")
-                    
                     psum_num = math.ceil(head_embedding_dim / mac_num)
+
                     for weights_col in weights_col_per_sram_list:
                         # FIXME
                         for IA_rows in weights_col_per_sram_list:
                             # seg_latencys = matrix_matrix_mul_latency(IA_rows, head_embedding_dim, weights_col, mac_lane, mac_num, psum_num, rounds, 0, debug_on)
                             seg_latencys = matrix_matrix_mul_latency(IA_rows, head_embedding_dim, weights_col, mac_lane, mac_num, psum_num, rounds, 0)
-                            latencys[die_idx] = latency_acc2(seg_latencys, latencys[die_idx])
-                    
+                            latencys[group_idx] = latency_acc2(seg_latencys, latencys[group_idx])
                 else:
                     # if SRAM can hold K/V
                     # FIXME Here we assume head_embedding_dim can be fully divided by mac_num
-                    # if debug_on:
-                    #     print(f"MH1, SRAM can hold K/V")
                         
                     psum_num = math.ceil(head_embedding_dim / mac_num)
-                    # seg_latencys = matrix_matrix_mul_latency(s, head_embedding_dim, s, mac_lane, mac_num, psum_num, rounds, 0, (sram2_height * mac_num >= 2 * head_embedding_dim * s), debug_on)
                     seg_latencys = matrix_matrix_mul_latency(s, head_embedding_dim, s, mac_lane, mac_num, psum_num, rounds, 0, (sram2_height * mac_num >= 2 * head_embedding_dim * s))
-                    latencys[die_idx] = latency_acc2(seg_latencys, latencys[die_idx])
+                    # print(f"group_idx: {group_idx}")
+                    latencys[group_idx] = latency_acc2(seg_latencys, latencys[group_idx])
 
-                
+
                 """ MH2 calculation """
                 if sram2_height * mac_num < head_embedding_dim * s:
                     # FIXME consider the case cannot hold A
@@ -665,56 +862,34 @@ def MH_latency(die_num, core_num, seq_len_table, die_idx_table, B, H, sram2_heig
                     weights_col_per_seg = math.ceil(head_embedding_dim / seg_num)
                     weights_maclane_per_seg = math.ceil(weights_col_per_seg / mac_lane)
                     (weights_col_per_sram_list, _) = calculate_weights_col_assignment(seg_num, weights_maclane_per_seg, mac_lane, head_embedding_dim)  
-                    # if debug_on:
-                    #     print(f"MH2, SRAM cannot hold K/V")
-                    #     print(f"MH2, weights_col_per_sram_list: {weights_col_per_sram_list}")
-                        
-                    # if debug_flag:
-                    #     print(f"MH2 weights_col_list: {weights_col_per_sram_list}")
+                    
                     psum_num = math.ceil(s / mac_num)
                     for weights_col in weights_col_per_sram_list:
                         for IA_rows in weights_col_per_sram_list:
                         # FIXME
-                            # seg_latencys = matrix_matrix_mul_latency(IA_rows, s, weights_col, mac_lane, mac_num, psum_num, rounds, 1, debug_on)    
                             seg_latencys = matrix_matrix_mul_latency(IA_rows, s, weights_col, mac_lane, mac_num, psum_num, rounds, 1)    
-                            latencys[die_idx] = latency_acc2(seg_latencys, latencys[die_idx])
-                    
+                            latencys[group_idx] = latency_acc2(seg_latencys, latencys[group_idx])
                 else:
-                    # if SRAM can hold K/V
-                    # if debug_on:
-                    #     print(f"MH2, SRAM can hold K/V")
-                        
                     psum_num = math.ceil(s / mac_num)
-                    # seg_latencys = matrix_matrix_mul_latency(s, s, head_embedding_dim, mac_lane, mac_num, psum_num, rounds, 1, True, debug_on)
                     seg_latencys = matrix_matrix_mul_latency(s, s, head_embedding_dim, mac_lane, mac_num, psum_num, rounds, 1, True)
-                    latencys[die_idx] = latency_acc2(seg_latencys, latencys[die_idx])
-                
-            else: 
-                # if debug_on:
-                #     print(f"-------- generation ----------")
-                    
-                # if generation
+                    latencys[group_idx] = latency_acc2(seg_latencys, latencys[group_idx])
+            else:
+                """ generation stage """
                 if sram2_height * mac_num < head_embedding_dim * s:
                     # SRAM cannot hold K/V
-                    # if debug_on:
-                    #     print("sram cannot hold K/V")
-                        
+                    
                     # if SRAM2 cannot hold entire K at the same time
                     """ MH1 calculation """
                     seg_num = math.ceil(s / (sram2_height / math.ceil(head_embedding_dim / mac_num)))
                     weights_col_per_seg = math.ceil(s / seg_num)
                     weights_maclane_per_seg = math.ceil(weights_col_per_seg / mac_lane)
-                    (weights_col_per_sram_list, _) = calculate_weights_col_assignment(seg_num, weights_maclane_per_seg, mac_lane, s)
-                    
-                    # if debug_on:
-                    #     print(f"MH1 weights_col_per_sram_list: {weights_col_per_sram_list}")
+                    (weights_col_per_sram_list, _) = calculate_weights_col_assignment(seg_num, weights_maclane_per_seg, mac_lane, s)    
                         
                     psum_num = math.ceil(head_embedding_dim / mac_num)
                     for weights_col in weights_col_per_sram_list:
                         # FIXME
-                        # seg_latencys = vector_matrix_mul_latency(head_embedding_dim, weights_col, mac_lane, mac_num, psum_num, rounds, 0, debug_on)
                         seg_latencys = vector_matrix_mul_latency(head_embedding_dim, weights_col, mac_lane, mac_num, psum_num, rounds, 0)
-                        latencys[die_idx] = latency_acc2(seg_latencys, latencys[die_idx])
+                        latencys[group_idx] = latency_acc2(seg_latencys, latencys[group_idx])
                         
                     """ MH2 calcualtion """   
                     # FIXME here we assume s is less then 4096
@@ -722,48 +897,34 @@ def MH_latency(die_num, core_num, seq_len_table, die_idx_table, B, H, sram2_heig
                     weights_col_per_seg = math.ceil(head_embedding_dim / seg_num)
                     weights_maclane_per_seg = math.ceil(weights_col_per_seg / mac_lane)
                     (weights_col_per_sram_list, _) = calculate_weights_col_assignment(seg_num, weights_maclane_per_seg, mac_lane, head_embedding_dim)  
-                    
-                    # if debug_on:
-                    #     print(f"MH2 weights_col_per_sram_list: {weights_col_per_sram_list}")
-                        
+
                     psum_num = math.ceil(s / mac_num)
                     for weights_col in weights_col_per_sram_list:
                         # FIXME
-                        # seg_latencys = vector_matrix_mul_latency(s, weights_col, mac_lane, mac_num, psum_num, rounds, 1, debug_on)    
                         seg_latencys = vector_matrix_mul_latency(s, weights_col, mac_lane, mac_num, psum_num, rounds, 1)    
-                        latencys[die_idx] = latency_acc2(seg_latencys, latencys[die_idx])
-                        
+                        latencys[group_idx] = latency_acc2(seg_latencys, latencys[group_idx])
                 else:
-                    # SRAM can hold K/V
-                    # if debug_on:
-                    #     print("sram can hold K/V")
-                        
                     """ MH1 calculation """
                     # FIXME Here we assume head_embedding_dim can be fully divided by mac_num
                     psum_num = math.ceil(head_embedding_dim / mac_num)
-                    # seg_latencys = vector_matrix_mul_latency(head_embedding_dim, s, mac_lane, mac_num, psum_num, rounds, 0, debug_on)
                     seg_latencys = vector_matrix_mul_latency(head_embedding_dim, s, mac_lane, mac_num, psum_num, rounds, 0)
-                    latencys[die_idx] = latency_acc2(seg_latencys, latencys[die_idx])
+                    latencys[group_idx] = latency_acc2(seg_latencys, latencys[group_idx])
                     
                     """ MH2 calculation """
                     psum_num = math.ceil(s / mac_num)
-                    # seg_latencys = vector_matrix_mul_latency(s, head_embedding_dim, mac_lane, mac_num, psum_num, rounds, 1, debug_on)
                     seg_latencys = vector_matrix_mul_latency(s, head_embedding_dim, mac_lane, mac_num, psum_num, rounds, 1)
-                    latencys[die_idx] = latency_acc2(seg_latencys, latencys[die_idx])
-        
-    # if debug_on:
-    #     for l in latencys:
-    #         l.dump()
+                    latencys[group_idx] = latency_acc2(seg_latencys, latencys[group_idx])
+               
     # FIXME
-    sum = [0] * die_num
+    sum = [0] * (die_num if MH_alg_level_mode == 0 else core_num)
     for i in range(len(latencys)):
         sum[i] = latencys[i].sum() 
-    if debug_on:
-        print(f"MH latencys: {sum}")     
-        print(f"max latency idx: {sum.index(max(sum))}")
-    return latencys[sum.index(max(sum))]
-        
-def dump_configs(requests_pool, requests_total_count, die_num, mac_lane, mac_num, sram2_height, N, B, H, D, embedding_dim, head_embedding_dim, J_max=0, J_min=0, MH_alg_mode=0):
+    # if debug_on:
+    #     print(f"MH latencys: {sum}")     
+    #     print(f"max latency idx: {sum.index(max(sum))}")
+    return latencys[sum.index(max(sum))]  
+          
+def dump_configs(requests_pool, requests_total_count, die_num, mac_lane, mac_num, sram2_height, N, B, H, D, embedding_dim, head_embedding_dim, MH_alg_level_mode, J_max=0, J_min=0, MH_alg_distr_mode=0):
     print("================ HW configs =================")
     print(f"+ die number: {die_num}")
     print(f"+ core number in a die: {N}")
@@ -776,8 +937,9 @@ def dump_configs(requests_pool, requests_total_count, die_num, mac_lane, mac_num
     print(f"+ head_embedding dimension: {head_embedding_dim}")
     print(f"+ decoder block number: {D}")
     print("================ MH algorithm ===============")
-    print(f"+ MH distribution mode: {MH_alg_mode}")
-    if MH_alg_mode == 1:
+    print(f"+ MH algorithm level mode: {MH_alg_level_mode}")
+    print(f"+ MH distribution mode: {MH_alg_distr_mode}")
+    if MH_alg_distr_mode == 1:
         print(f"+ J_max: {J_max}")
         print(f"+ J_min: {J_min}")
     print("================= Data set ==================")
@@ -816,21 +978,29 @@ def simulation(args, requests_pool, Statistics, FC_Statistics, MH_Statistics):
     # done is only for the last requets marking whether they completes
     seq_len_table = [(True, 0, 0, False)] * B
     
-    # record each Q-A's assigned die idx
+    # record each Q-A's assigned die idx when MH_alg_level_mode == 0
     die_idx_table = [0] * B
+    # record each Q-A's assigned core idx when MH_alg_level_mode == 1
+    core_idx_table = [0] * B
     
     """ algorithm """
     P = args.P
-    # ideal job number per die
-    J_ideal = math.ceil(B / die_num)
-    # maximum job number per die 
-    J_max = math.ceil((1 + P) * J_ideal)
-    # minimum job nubmer per die
-    J_min = math.floor((1 - P) * J_ideal)
-    MH_alg_mode = args.MH_alg_mode
+    MH_alg_distr_mode = args.MH_alg_distr_mode
+    MH_alg_level_mode = args.MH_alg_level_mode
+    if MH_alg_level_mode == 0:
+        # ideal job number per die
+        J_ideal = math.ceil(B / die_num)
+        # maximum job number per die 
+        J_max = math.ceil((1 + P) * J_ideal)
+        # minimum job nubmer per die
+        J_min = math.floor((1 - P) * J_ideal)
+    else:
+        J_ideal = math.ceil(B / N)
+        J_max = math.ceil((1 + P) * J_ideal)
+        J_min = math.floor((1 - P) * J_ideal)
     
     print("================================ Initial Start ===============================")
-    dump_configs(requests_pool, requests_total_count, die_num, mac_lane, mac_num, sram2_height, N, B, H, D, embedding_dim, head_embedding_dim, J_max, J_min, MH_alg_mode)
+    dump_configs(requests_pool, requests_total_count, die_num, mac_lane, mac_num, sram2_height, N, B, H, D, embedding_dim, head_embedding_dim, MH_alg_level_mode, J_max, J_min, MH_alg_distr_mode)
 
     """ seq_len_table initiation """
     for i in range(B):
@@ -919,7 +1089,8 @@ def simulation(args, requests_pool, Statistics, FC_Statistics, MH_Statistics):
             # latency += H * IA_latency # FIXME
             # if debug_on:
             #     print("------------- MH -------------")
-            seg_latency = MH_latency(die_num, N, seq_len_table, die_idx_table, B, H, sram2_height, mac_lane, mac_num, head_embedding_dim, J_max, J_min, MH_alg_mode)
+            seg_latency = MH_latency(die_num, N, seq_len_table, die_idx_table if MH_alg_level_mode == 0 else core_idx_table, B, H, 
+                                        sram2_height, mac_lane, mac_num, head_embedding_dim, J_max, J_min, MH_alg_distr_mode, MH_alg_level_mode, debug_on)
             latency_acc1(seg_latency, Statistics, D)
             latency_acc1(seg_latency, MH_Statistics, D)
             # if debug_on:
@@ -965,16 +1136,17 @@ def simulation(args, requests_pool, Statistics, FC_Statistics, MH_Statistics):
             debug_on = False
             flag = False
             flag1 = False
-            die_jobs = [0] * die_num
+            group_jobs = [0] * (die_num if MH_alg_level_mode == 0 else N)
             """ at the end of the round, check if certain Q-A stops """
             for i in range(B):
                 # if flag1 == False:
                 #     for ii in range(B):
                 #         if seq_len_table[ii][3] == False:
-                #             die_jobs[die_idx_table[ii]] += 1
-                #     print(f"die_jobs: {die_jobs}")
+                #             group_jobs[die_idx_table[ii] if MH_alg_level_mode == 0 else core_idx_table[ii]] += 1
+                #     print(f"group_jobs: {group_jobs}")
                 #     print('finished jobs:')
                 #     flag1 = True
+                    
                 if seq_len_table[i][0] == False:
                     # in generation stage
                     # answer length ++
@@ -982,7 +1154,7 @@ def simulation(args, requests_pool, Statistics, FC_Statistics, MH_Statistics):
                         seq_len_table[i][2] += 1
                     if seq_len_table[i][2] == (requests_pool[seq_len_table[i][1]][1] + requests_pool[seq_len_table[i][1]][2]):
                         # if this job's generation completes, feed a new job into batch
-                        # print(f"length: {seq_len_table[i][2]}, die{die_idx_table[i]}")
+                        # print(f"length: {seq_len_table[i][2]}, group{die_idx_table[i] if MH_alg_level_mode == 0 else core_idx_table[i]}")
                         if requests_id == requests_total_count:
                             # requests pool is run out
                             seq_len_table[i][3] = True
@@ -1000,11 +1172,13 @@ def simulation(args, requests_pool, Statistics, FC_Statistics, MH_Statistics):
                 else:
                     # in prefill stage, next time switch to generation stage
                     seq_len_table[i][0] = False
-            die_jobs = [0] * die_num
+                    
+            group_jobs = [0] * (die_num if MH_alg_level_mode == 0 else N)
             # for ii in range(B):
             #     if (seq_len_table[ii][3] == False) and (seq_len_table[ii][0] == False):
-            #         die_jobs[die_idx_table[ii]] += 1
-            # print(f"die_jobs after stopping: {die_jobs}")
+            #         group_jobs[die_idx_table[ii] if MH_alg_level_mode == 0 else core_idx_table[ii]] += 1
+            # print(f"group_jobs after stopping: {group_jobs}")
+            
         print(f"IA_rows_sum: {IA_rows_sum}")
         print(f"rounds: {rounds}")
         print(f"mh_count: {mh_count}")
@@ -1081,7 +1255,7 @@ def simulation(args, requests_pool, Statistics, FC_Statistics, MH_Statistics):
                 # latency += H * IA_latency # FIXME
                 # if debug_on:
                 #     print("------------- MH -------------")
-                seg_latency = MH_latency(die_num, N, seq_len_table, die_idx_table, b, H, sram2_height, mac_lane, mac_num, head_embedding_dim)
+                seg_latency = MH_latency(die_num, N, seq_len_table, die_idx_table if MH_alg_level_mode == 0 else core_idx_table, b, H, sram2_height, mac_lane, mac_num, head_embedding_dim)
                 latency_acc1(seg_latency, Statistics, D)
                 latency_acc1(seg_latency, MH_Statistics, D)
                 # if debug_on:
@@ -1179,7 +1353,8 @@ def main():
     """ Main function """
 
     args = argparser().parse_args()
-    requests_pool = init_requests_pool()
+    (requests_pool, s_avg) = init_requests_pool()
+    print(f"average requests and answer length: {s_avg}")
     Statistics = Stats()
     FC_Statistics = Stats()
     MH_Statistics = Stats()

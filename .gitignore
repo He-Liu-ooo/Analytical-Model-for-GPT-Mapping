@@ -1,13 +1,4 @@
 test.py
 GPT_requests_pool.txt
 prompts.txt
-output_padding.txt
-output-128-0.txt
-output-128-1.txt
-output-256-0.txt
-output-256-1.txt
-output-512-0.txt
-output-512-1.txt
-output-1024-0.txt
-output-1024-1.txt
-output.txt
+outputs/
