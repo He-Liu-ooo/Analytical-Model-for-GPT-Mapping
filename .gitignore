@@ -2,3 +2,7 @@ test.py
 GPT_requests_pool.txt
 prompts.txt
 outputs/
+outputs-core.txt
+outputs-die.txt
+outputs-padding.txt
+outputs.txt
