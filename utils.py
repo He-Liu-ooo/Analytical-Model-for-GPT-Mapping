@@ -55,6 +55,8 @@ class latency:
         self.weight_loading = 0
         self.p_weight_loading = 0
         self.weight_loading_latency = 0
+        self.dynamic_weight_loading = 0
+        self.dynamic_weight_loading_latency = 0
         self.p_IA_loading = 0
         self.IA_loading = 0
         self.IA_loading_latency = 0
@@ -75,6 +77,7 @@ class latency:
         self.cal *= N
         self.ppu *= N
         self.weight_loading *= N
+        self.dynamic_weight_loading *= N
         self.IA_loading *= N
         self.NoC_latency *= N
         self.NoP_latency *= N
@@ -101,16 +104,19 @@ class latency:
         self.cal_latency = self.cal * self.p_cal
         self.ppu_latency = self.ppu * self.p_ppu
         self.weight_loading_latency = self.weight_loading * self.p_weight_loading
+        self.dynamic_weight_loading_latency = self.dynamic_weight_loading * self.p_weight_loading
         self.IA_loading_latency = self.IA_loading * self.p_weight_loading
     
     def overall_latency(self):
         
         self.calculate_latency()
-        return (self.cal_latency + self.ppu_latency + self.weight_loading_latency + self.IA_loading_latency + self.NoC_latency + self.NoP_latency)
+        return (self.cal_latency + self.ppu_latency + self.weight_loading_latency + self.dynamic_weight_loading_latency + self.IA_loading_latency + self.NoC_latency + self.NoP_latency)
     
     def add_NoC_cores_to_ppu(self, data_amount):
         self.NoC_latency += (self.NoC_h - 1) * max(math.ceil(data_amount / self.NoC_core_bandwidth), 1 + self.NoC_latency_per_hop) \
-                            + math.ceil(data_amount / self.NoC_core_bandwidth) + self.NoC_latency_per_hop      
+                            + math.ceil(data_amount / self.NoC_core_bandwidth) + self.NoC_latency_per_hop   
+        # print(f"data_amount: {data_amount}")
+        # print(f"NoC_cores_to_ppu: {(self.NoC_h - 1) * max(math.ceil(data_amount / self.NoC_core_bandwidth), 1 + self.NoC_latency_per_hop) + math.ceil(data_amount / self.NoC_core_bandwidth) + self.NoC_latency_per_hop}")   
     
     def add_NoC_core_to_ppu(self, data_amount):
         n = 0
@@ -139,6 +145,7 @@ class latency:
                                 + (self.NoC_h - 2 - i) * (1 + self.NoC_latency_per_hop) \
                                 + math.ceil(data_amount / self.NoC_core_bandwidth) + self.NoC_latency_per_hop
                 max_latency = max(tmp_latency, max_latency)
+            self.NoC_latency += max_latency
         elif self.NoC_h == 1:
             self.NoC_latency += math.ceil(data_amount / (self.ppu_bandwidth / self.NoC_w)) + self.NoC_latency_per_hop
         else: 
@@ -190,7 +197,7 @@ class latency:
         accum = 0
         for i in range(self.NoP_h):
             for j in range(self.NoP_w):
-                accum += average_list[i * self.NoP_w + j] * max([abs(self.NoP_h - 1 - i) + abs(self.NoP_w - 1 - j), i + abs(self.NoP_w - 1 -j), abs(self.NoP_h - 1 - i) + j, i + j])
+                accum += average_list[i * self.NoP_w + j] * max([abs(self.NoP_h - 1 - i) + abs(self.NoP_w - 1 - j), i + abs(self.NoP_w - 1 - j), abs(self.NoP_h - 1 - i) + j, i + j])
         
         self.NoP_latency += math.ceil(accum / self.NoP_die_bandwidth) + self.NoP_latency_per_hop
         
@@ -218,6 +225,7 @@ class latency:
         print("---------- dump latencys -----------")
         print(f"cal: {self.cal_latency}")
         print(f"weight_loading: {self.weight_loading_latency}")
+        print(f"dynamic_weight_loading: {self.dynamic_weight_loading_latency}")
         print(f"IA_loading: {self.IA_loading_latency}")
         print(f"ppu: {self.ppu_latency}")
         print(f"NoC: {self.NoC_latency}")
@@ -228,6 +236,7 @@ class latency:
         print(f"cal: {self.cal}")
         print(f"ppu: {self.ppu}")
         print(f"weight_loading: {self.weight_loading}")
+        print(f"dynamic_weight_loading: {self.dynamic_weight_loading}")
         print(f"IA_loading: {self.IA_loading}")
         print(f"NoC_latency: {self.NoC_latency}")
         print(f"NoP_latency: {self.NoP_latency}")
