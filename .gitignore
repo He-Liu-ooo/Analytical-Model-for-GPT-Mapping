@@ -7,3 +7,5 @@ outputs-die.txt
 outputs-padding.txt
 outputs.txt
 output.txt
+output-100dies-p0.1-b256.txt
+output-4dies-p0.1-b256.txt
