@@ -1,0 +1,480 @@
+================================ Initial Start ===============================
+================ HW configs =================
++ die number: 4
++ core number in a die: 16
++ mac lane number: 16
++ mac num number: 32
++ sram2_height: 2048
+================ SW configs =================
++ embedding dimension: 12288
++ head number: 96
++ head_embedding dimension: 128
++ decoder block number: 96
+================ MH algorithm ===============
++ MH algorithm level mode: 0
++ MH distribution mode: 1
++ J_max: 71
++ J_min: 57
+================= Data set ==================
++ batch size: 256
++ request_total_count:2062
+---------- dump params -----------
+cal_latency: 0.039
+ppu_latency: 5
+ppu_boundary: 100
+weight/IA_loading_latency: 1
+NoC_core_bandwidth: 68
+NoP_die_bandwidth: 100
+ppu_bandwidth: 120
+NoC_latency_per_hop: 10
+NoP_latency_per_hop: 20
+NoC_h: 4
+NoC_w: 4
+NoP_h: 2
+NoP_w: 2
+is_ring_mode: False
+================================ Initial End ===============================
+------------------------------------
+s_total_avg: 123.51617405243873
+done
+================================ Results ===============================
+------------ dump Total stats ------------
+---------- dump latencys -----------
+cal: 142728740174.592
+weight_loading: 353498038272
+dynamic_weight_loading: 188208407808
+IA_loading: 1053807948480
+ppu: 140082506118720
+NoC: 3153322868024832.0
+NoP: 18556561092096
+peak static memory usage: 173946175488.0
+peak dynamic memory usage: 155185053696
+peak IA usage: 1811939328.0
+per group peak dynamic memory usage: 45484867584
+per group peak static memory usage: 43486543872.0
+per group peak static+dynamic memory usage: 88971411456.0
+load balance: 0
+---------- dump Total latency counts -----------
+cal: 3659711286528
+ppu: 28016501223744
+weight_loading: 353498038272
+dynamic_weight_loading: 188208407808
+IA_loading:                     1053807948480
++ IA_loading_FC_operand:     32341220352-3.07%
++ IA_loading_FC_partialsum:  331278649536-31.44%
++ IA_loading_residual:       791562240-0.08%
++ IA_loading_FC_wb:          669661655040-63.55%
++ IA_loading_IA_rotation:    7153877952-0.68%
++ IA_loading_IA_rotation_wb: 7153859520-0.68%
++ IA_loading_MH:             843056640-0.08%
++ IA_loading_softmax:        4643712-0.0%
++ IA_loading_LN:             1380630528-0.13%
++ IA_loading_split_concat:   3229982976-0.31%
+NoC_transactions:                     3153322868024832.0
++ NoC_FC_partialsum:         3143553287454720.0-100%
++ NoC_IA_rotation:           8116844101632-0%
++ NoC_LN:                    12833551872-0%
++ NoC_split_concat:          1637781995520-0%
++ NoC_softmax:               2120921088-0%
+NoP_transactions:                     18556561092096
++ NoP_IA_rotation:           16233688203264-87%
++ NoP_split_concat:          2319098314752-12%
++ NoP_LN:                    3774574080-0%
++ NoP_softmax:               0-0%
+------------ dump FC stats ------------
+---------- dump latencys -----------
+cal: 142253233274.88
+weight_loading: 353498038272
+dynamic_weight_loading: 0
+IA_loading: 1048223540268
+ppu: 140065251310080
+NoC: 3151585581096960.0
+NoP: 16064587284480
+peak static memory usage: 0
+peak dynamic memory usage: 0
+peak IA usage: 0
+per group peak dynamic memory usage: 0
+per group peak static memory usage: 0.0
+per group peak static+dynamic memory usage: 0.0
+load balance: 0
+---------- dump FC latency counts -----------
+cal: 3647518801920
+ppu: 28013050262016
+weight_loading: 353498038272
+dynamic_weight_loading: 0
+IA_loading:                     1048223540268
++ IA_loading_FC_operand:     32341220352-3.09%
++ IA_loading_FC_partialsum:  331278649536-31.6%
++ IA_loading_residual:       783316800-0.07%
++ IA_loading_FC_wb:          669661655040-63.89%
++ IA_loading_IA_rotation:    7079358390-0.68%
++ IA_loading_IA_rotation_wb: 7079340150-0.68%
++ IA_loading_MH:             0-0.0%
++ IA_loading_softmax:        0-0.0%
++ IA_loading_LN:             0-0.0%
++ IA_loading_split_concat:   0-0.0%
+NoC_transactions:                     3151585581096960.0
++ NoC_FC_partialsum:         3143553287454720.0-100%
++ NoC_IA_rotation:           8032293642240-0%
++ NoC_LN:                    0-0%
++ NoC_split_concat:          0-0%
++ NoC_softmax:               0-0%
+NoP_transactions:                     16064587284480
++ NoP_IA_rotation:           16064587284480-100%
++ NoP_split_concat:          0-0%
++ NoP_LN:                    0-0%
++ NoP_softmax:               0-0%
+------------ dump MH stats ------------
+---------- dump latencys -----------
+cal: 475506899.712
+weight_loading: 0
+dynamic_weight_loading: 188208407808
+IA_loading: 847700352
+ppu: 0
+NoC: 0
+NoP: 0
+peak static memory usage: 0
+peak dynamic memory usage: 0
+peak IA usage: 0
+per group peak dynamic memory usage: 0
+per group peak static memory usage: 0.0
+per group peak static+dynamic memory usage: 0.0
+load balance: 0
+---------- dump MH latency counts -----------
+cal: 12192484608
+ppu: 0
+weight_loading: 0
+dynamic_weight_loading: 188208407808
+IA_loading:                     847700352
++ IA_loading_FC_operand:     0-0.0%
++ IA_loading_FC_partialsum:  0-0.0%
++ IA_loading_residual:       0-0.0%
++ IA_loading_FC_wb:          0-0.0%
++ IA_loading_IA_rotation:    0-0.0%
++ IA_loading_IA_rotation_wb: 0-0.0%
++ IA_loading_MH:             843056640-99.45%
++ IA_loading_softmax:        4643712-0.55%
++ IA_loading_LN:             0-0.0%
++ IA_loading_split_concat:   0-0.0%
+NoC_transactions:                     0
++ NoC_FC_partialsum:         0
++ NoC_IA_rotation:           0
++ NoC_LN:                    0
++ NoC_split_concat:          0
++ NoC_softmax:               0
+NoP_transactions:                     0
++ NoP_IA_rotation:           0
++ NoP_split_concat:          0
++ NoP_LN:                    0
++ NoP_softmax:               0
+------------ dump NonLinear stats ------------
+---------- dump latencys -----------
+cal: 0.0
+weight_loading: 0
+dynamic_weight_loading: 0
+IA_loading: 19678820226
+ppu: 17254808640
+NoC: 9769580570112
+NoP: 18556561092096
+peak static memory usage: 0
+peak dynamic memory usage: 0
+peak IA usage: 0
+per group peak dynamic memory usage: 0
+per group peak static memory usage: 0.0
+per group peak static+dynamic memory usage: 0.0
+load balance: 0
+---------- dump NonLinear latency counts -----------
+cal: 0
+ppu: 3450961728
+weight_loading: 0
+dynamic_weight_loading: 0
+IA_loading:                     19678820226
++ IA_loading_FC_operand:     0-0.0%
++ IA_loading_FC_partialsum:  0-0.0%
++ IA_loading_residual:       791562240-4.02%
++ IA_loading_FC_wb:          0-0.0%
++ IA_loading_IA_rotation:    7153877952-36.35%
++ IA_loading_IA_rotation_wb: 7153859520-36.35%
++ IA_loading_MH:             0-0.0%
++ IA_loading_softmax:        97026-0.0%
++ IA_loading_LN:             1380630528-7.02%
++ IA_loading_split_concat:   3229982976-16.41%
+NoC_transactions:                     9769580570112
++ NoC_FC_partialsum:         0-0%
++ NoC_IA_rotation:           8116844101632-83%
++ NoC_LN:                    12833551872-0%
++ NoC_split_concat:          1637781995520-17%
++ NoC_softmax:               2120921088-0%
+NoP_transactions:                     18556561092096
++ NoP_IA_rotation:           16233688203264-87%
++ NoP_split_concat:          2319098314752-12%
++ NoP_LN:                    3774574080-0%
++ NoP_softmax:               0-0%
+------------ dump Layer Norm stats ------------
+---------- dump latencys -----------
+cal: 0.0
+weight_loading: 0
+dynamic_weight_loading: 0
+IA_loading: 1380630528
+ppu: 5714502720
+NoC: 12833551872
+NoP: 3774574080
+peak static memory usage: 0
+peak dynamic memory usage: 0
+peak IA usage: 0
+per group peak dynamic memory usage: 0
+per group peak static memory usage: 0.0
+per group peak static+dynamic memory usage: 0.0
+load balance: 0
+---------- dump Layer Norm latency counts -----------
+cal: 0
+ppu: 1142900544
+weight_loading: 0
+dynamic_weight_loading: 0
+IA_loading:                     1380630528
++ IA_loading_FC_operand:     0-0.0%
++ IA_loading_FC_partialsum:  0-0.0%
++ IA_loading_residual:       0-0.0%
++ IA_loading_FC_wb:          0-0.0%
++ IA_loading_IA_rotation:    0-0.0%
++ IA_loading_IA_rotation_wb: 0-0.0%
++ IA_loading_MH:             0-0.0%
++ IA_loading_softmax:        0-0.0%
++ IA_loading_LN:             1380630528-100.0%
++ IA_loading_split_concat:   0-0.0%
+NoC_transactions:                     12833551872
++ NoC_FC_partialsum:         0-0%
++ NoC_IA_rotation:           0-0%
++ NoC_LN:                    12833551872-100%
++ NoC_split_concat:          0-0%
++ NoC_softmax:               0-0%
+NoP_transactions:                     3774574080
++ NoP_IA_rotation:           0-0%
++ NoP_split_concat:          0-0%
++ NoP_LN:                    3774574080-100%
++ NoP_softmax:               0-0%
+------------ dump Split stats ------------
+---------- dump latencys -----------
+cal: 0.0
+weight_loading: 0
+dynamic_weight_loading: 0
+IA_loading: 2399094720
+ppu: 0
+NoC: 1228336496640
+NoP: 1328581509120
+peak static memory usage: 0
+peak dynamic memory usage: 0
+peak IA usage: 0
+per group peak dynamic memory usage: 0
+per group peak static memory usage: 0.0
+per group peak static+dynamic memory usage: 0.0
+load balance: 0
+---------- dump Split latency counts -----------
+cal: 0
+ppu: 0
+weight_loading: 0
+dynamic_weight_loading: 0
+IA_loading:                     2399094720
++ IA_loading_FC_operand:     0-0.0%
++ IA_loading_FC_partialsum:  0-0.0%
++ IA_loading_residual:       0-0.0%
++ IA_loading_FC_wb:          0-0.0%
++ IA_loading_IA_rotation:    0-0.0%
++ IA_loading_IA_rotation_wb: 0-0.0%
++ IA_loading_MH:             0-0.0%
++ IA_loading_softmax:        0-0.0%
++ IA_loading_LN:             0-0.0%
++ IA_loading_split_concat:   2399094720-100.0%
+NoC_transactions:                     1228336496640
++ NoC_FC_partialsum:         0-0%
++ NoC_IA_rotation:           0-0%
++ NoC_LN:                    0-0%
++ NoC_split_concat:          1228336496640-100%
++ NoC_softmax:               0-0%
+NoP_transactions:                     1328581509120
++ NoP_IA_rotation:           0-0%
++ NoP_split_concat:          1328581509120-100%
++ NoP_LN:                    0-0%
++ NoP_softmax:               0-0%
+------------ dump Softmax stats ------------
+---------- dump latencys -----------
+cal: 0.0
+weight_loading: 0
+dynamic_weight_loading: 0
+IA_loading: 97026
+ppu: 11540305920
+NoC: 2120921088
+NoP: 0
+peak static memory usage: 0
+peak dynamic memory usage: 0
+peak IA usage: 0
+per group peak dynamic memory usage: 0
+per group peak static memory usage: 0.0
+per group peak static+dynamic memory usage: 0.0
+load balance: 0
+---------- dump Softmax latency counts -----------
+cal: 0
+ppu: 2308061184
+weight_loading: 0
+dynamic_weight_loading: 0
+IA_loading:                     97026
++ IA_loading_FC_operand:     0-0.0%
++ IA_loading_FC_partialsum:  0-0.0%
++ IA_loading_residual:       0-0.0%
++ IA_loading_FC_wb:          0-0.0%
++ IA_loading_IA_rotation:    0-0.0%
++ IA_loading_IA_rotation_wb: 0-0.0%
++ IA_loading_MH:             0-0.0%
++ IA_loading_softmax:        97026-100.0%
++ IA_loading_LN:             0-0.0%
++ IA_loading_split_concat:   31190016-32146.04%
+NoC_transactions:                     2120921088
++ NoC_FC_partialsum:         0-0%
++ NoC_IA_rotation:           0-0%
++ NoC_LN:                    0-0%
++ NoC_split_concat:          0-0%
++ NoC_softmax:               2120921088-100%
+NoP_transactions:                     0
++ NoP_IA_rotation:           0
++ NoP_split_concat:          0
++ NoP_LN:                    0
++ NoP_softmax:               0
+------------ dump Concat stats ------------
+---------- dump latencys -----------
+cal: 0.0
+weight_loading: 0
+dynamic_weight_loading: 0
+IA_loading: 799698240
+ppu: 0
+NoC: 409445498880
+NoP: 990516805632
+peak static memory usage: 0
+peak dynamic memory usage: 0
+peak IA usage: 0
+per group peak dynamic memory usage: 0
+per group peak static memory usage: 0.0
+per group peak static+dynamic memory usage: 0.0
+load balance: 0
+---------- dump Concat latency counts -----------
+cal: 0
+ppu: 0
+weight_loading: 0
+dynamic_weight_loading: 0
+IA_loading:                     799698240
++ IA_loading_FC_operand:     0-0.0%
++ IA_loading_FC_partialsum:  0-0.0%
++ IA_loading_residual:       0-0.0%
++ IA_loading_FC_wb:          0-0.0%
++ IA_loading_IA_rotation:    0-0.0%
++ IA_loading_IA_rotation_wb: 0-0.0%
++ IA_loading_MH:             0-0.0%
++ IA_loading_softmax:        0-0.0%
++ IA_loading_LN:             0-0.0%
++ IA_loading_split_concat:   799698240-100.0%
+NoC_transactions:                     409445498880
++ NoC_FC_partialsum:         0-0%
++ NoC_IA_rotation:           0-0%
++ NoC_LN:                    0-0%
++ NoC_split_concat:          409445498880-100%
++ NoC_softmax:               0-0%
+NoP_transactions:                     990516805632
++ NoP_IA_rotation:           0-0%
++ NoP_split_concat:          990516805632-100%
++ NoP_LN:                    0-0%
++ NoP_softmax:               0-0%
+------------ dump Residual stats ------------
+---------- dump latencys -----------
+cal: 0.0
+weight_loading: 0
+dynamic_weight_loading: 0
+IA_loading: 8245440
+ppu: 0
+NoC: 0
+NoP: 0
+peak static memory usage: 0
+peak dynamic memory usage: 0
+peak IA usage: 0
+per group peak dynamic memory usage: 0
+per group peak static memory usage: 0.0
+per group peak static+dynamic memory usage: 0.0
+load balance: 0
+---------- dump Residual latency counts -----------
+cal: 0
+ppu: 0
+weight_loading: 0
+dynamic_weight_loading: 0
+IA_loading:                     8245440
++ IA_loading_FC_operand:     0-0.0%
++ IA_loading_FC_partialsum:  0-0.0%
++ IA_loading_residual:       8245440-100.0%
++ IA_loading_FC_wb:          0-0.0%
++ IA_loading_IA_rotation:    0-0.0%
++ IA_loading_IA_rotation_wb: 0-0.0%
++ IA_loading_MH:             0-0.0%
++ IA_loading_softmax:        0-0.0%
++ IA_loading_LN:             0-0.0%
++ IA_loading_split_concat:   0-0.0%
+NoC_transactions:                     0
++ NoC_FC_partialsum:         0
++ NoC_IA_rotation:           0
++ NoC_LN:                    0
++ NoC_split_concat:          0
++ NoC_softmax:               0
+NoP_transactions:                     0
++ NoP_IA_rotation:           0
++ NoP_split_concat:          0
++ NoP_LN:                    0
++ NoP_softmax:               0
+------------ dump IA Rotation stats ------------
+---------- dump latencys -----------
+cal: 0.0
+weight_loading: 0
+dynamic_weight_loading: 0
+IA_loading: 149038932
+ppu: 0
+NoC: 84550459392
+NoP: 169100918784
+peak static memory usage: 0
+peak dynamic memory usage: 0
+peak IA usage: 0
+per group peak dynamic memory usage: 0
+per group peak static memory usage: 0.0
+per group peak static+dynamic memory usage: 0.0
+load balance: 0
+---------- dump IA Rotation latency counts -----------
+cal: 0
+ppu: 0
+weight_loading: 0
+dynamic_weight_loading: 0
+IA_loading:                     149038932
++ IA_loading_FC_operand:     0-0.0%
++ IA_loading_FC_partialsum:  0-0.0%
++ IA_loading_residual:       0-0.0%
++ IA_loading_FC_wb:          0-0.0%
++ IA_loading_IA_rotation:    74519562-50.0%
++ IA_loading_IA_rotation_wb: 74519370-50.0%
++ IA_loading_MH:             0-0.0%
++ IA_loading_softmax:        0-0.0%
++ IA_loading_LN:             0-0.0%
++ IA_loading_split_concat:   0-0.0%
+NoC_transactions:                     84550459392
++ NoC_FC_partialsum:         0-0%
++ NoC_IA_rotation:           84550459392-100%
++ NoC_LN:                    0-0%
++ NoC_split_concat:          0-0%
++ NoC_softmax:               0-0%
+NoP_transactions:                     169100918784
++ NoP_IA_rotation:           169100918784-100%
++ NoP_split_concat:          0-0%
++ NoP_LN:                    0-0%
++ NoP_softmax:               0-0%
++ total latency: 1738243134734.592
++ fc latency: 1543974811814.88
++ mh latency: 189531615059.712
++ nonlinear latency: 19678820226.0
++ ln latency: 1380630528.0
++ split latency: 2399094720.0
++ softmax latency: 97026.0
++ concat latency: 799698240.0
++ residual latency: 8245440.0
++ IA rotation latency: 149038932.0

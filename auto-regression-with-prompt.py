@@ -27,7 +27,7 @@ def argparser():
     ap = argparse.ArgumentParser()
 
     # HW
-    ap.add_argument('--die-num', type = int, default = 4,
+    ap.add_argument('--die-num', type = int, default = 100,
                     help = 'number of dies in the system')
     ap.add_argument('--core-num-in-die', type = int, default = 16,     
                     help = 'number of cores in a die')
@@ -39,68 +39,37 @@ def argparser():
     # MAPPING
     ap.add_argument('--W', type = int, default = 1,
                     help = 'parameter when calculating FC layer, for every core, determine the width of dot production, width = mac_num * W')
-    # ap.add_argument('--softmax-mode', type = int, default = 0,
-    #                 help = '0 for original softmax, 1 for optimized softmax')
     
     # MODEL
-    ap.add_argument('--batch-size', type = int, default = 128,
+    ap.add_argument('--batch-size', type = int, default = 256,
                     help = 'number of tokens in a big batch')
-    ap.add_argument('--embedding-dim', type = int, default = 4096,
+    ap.add_argument('--embedding-dim', type = int, default = 12288,
                     help = 'embedding dimension')
-    ap.add_argument('--head-num', type = int, default = 32,
+    ap.add_argument('--head-num', type = int, default = 96,
                     help = 'number of heads in multihead attention')
-    ap.add_argument('--decoder-num', type = int, default = 32,
+    ap.add_argument('--decoder-num', type = int, default = 96,
                     help = 'number of decoders in the model')
     
     # ALGORITHM
     ap.add_argument('--P', type = float, default = 0.1,
                     help = 'percentage of job number that determines the maximum and minimum boundary of job number a die can hold')
     # TODO this option can be replaced by adjusting P to certain extreme values
-    ap.add_argument('--MH-alg-distr-mode', type = int, default = 0,
+    ap.add_argument('--MH-alg-distr-mode', type = int, default = 1,
                     help = '0 for origin distribution algorithm, 1 for distribution algorithm with boundary')
     ap.add_argument('--MH-alg-level-mode', type = int, default = 0,
                     help = '0 for implementation the load-balance algorithm in die level, 1 for core level')
 
     # PARAM
-    # TODO this parameter scales with number of cores 
-    ap.add_argument('--cal-latency', type = int, default = 64,
+    # TODO check this 0.039~0.455
+    ap.add_argument('--cal-latency', type = int, default = 0.039,
                     help = 'latency of calculating a mac_num dot production(8bit)')
-    # ap.add_argument('--psum-vec-cal-latency', type = int, default = 0.5,
-    #                 help = 'latency of adding 2 mac_lane * 3Byte data')
-    # ap.add_argument('--psum-cube-cal-latency', type = int, default = 0.5,
-    #                 help = 'latency of adding 2 mac_lane * mac_lane * 3Byte data')
-    # ap.add_argument('--psum-cube-cal-N-latency', type = int, default = 0.5,
-    #                 help = 'latency of adding N(core number in a die) mac_lane * mac_lane * 3Byte data')
-    # ap.add_argument('--psum-cube-loading-latency', type = int, default = 0.5,
-    #                 help = 'latency of reading a mac_lane * mac_lane * 3Byte data from HMC')
     ap.add_argument('--ppu-latency', type = int, default = 5,
                     help = 'latency of a PPU operation with data amount boundary')
     ap.add_argument('--ppu-boundary', type = int, default = 100,
                     help = 'PPU data amount boundary, in the unit of Byte')
     # PPU latency = math.ceil(data_amount/ppu_boundary)*ppu_latency
-    
-    # ap.add_argument('--add-8-latency', type = int, default = 0.5,
-    #                 help = 'latency of adding 2 8-bit data together')
-    # ap.add_argument('--add-24-latency', type = int, default = 0.5,
-    #                 help = 'latency of adding 2 24-bit data together')
-    # ap.add_argument('--substract-square-latency', type = int, default = 0.5,
-    #                 help = 'latency of adding 2 (oprand1 - oprand2)^2, one oprand is 8-bit and the other is 24-bit')
-    # ap.add_argument('--division-latency', type = int, default = 0.5,
-    #                 help = 'latency of divide two data, one is 24-bit, one is 8-bit')
-    # ap.add_argument('--LN-latency', type = int, default = 0.5,
-    #                 help = 'latency of (x-EX)/(sqrt(Var+epsilon))*gamma + beta')
-    # ap.add_argument('--find_max_latency', type = int, default = 0.5,
-    #                 help = 'latency of finding maximum among mac_lane data')
-    # ap.add_argument('--substract_exp_latency', type = int, default = 0.5,
-    #                 help = 'latency of e^(x-x_max) of a data')
     ap.add_argument('--weight-loading-latency', type = int, default = 1,
                     help = 'latency of transfering mac_num Byte of data from HMC to SRAM of core')
-    # ap.add_argument('--psum-cube-wb-latency', type = int, default = 0.5,
-    #                 help = 'latency of writing a mac_lane * mac_lane * 3Byte data to HMC')
-    # ap.add_argument('--csum-vec-wb-latency', type = int, default = 0.5,
-    #                 help = 'latency of writing a complete mac_lane Byte data to HMC')
-    # ap.add_argument('--csum-vec-wb-sram-latency', type = int, default = 0.5,
-    #                 help = 'latency of writing a complete mac_lane Byte data to SRAM of core')
     
     ap.add_argument('--NoC-core-bandwidth', type = int, default = 68,
                     help = 'core bandwidth, in the unit of Byte/cycle')
@@ -115,11 +84,11 @@ def argparser():
                     help = 'number of cores within a die in y axis')
     ap.add_argument('--NoC-w', type = int, default = 4,
                     help = 'number of cores within a die in x axis')
-    ap.add_argument('--NoP-h', type = int, default = 2,
+    ap.add_argument('--NoP-h', type = int, default = 10,
                     help = 'number of dies in y axis')
-    ap.add_argument('--NoP-w', type = int, default = 2,
+    ap.add_argument('--NoP-w', type = int, default = 10,
                     help = 'number of dies in x axis')
-    ap.add_argument('--is-ring-mode', type = int, default = True,
+    ap.add_argument('--is-ring-mode', type = int, default = False,
                     help = 'whether die is of ring topology')
     # NoC latency of X Byte data = math.ceil(X/NoC-core-bandwidth) + NoC-latency-per-hop*hop_num
     # NoP latency of X Byte data = math.ceil(X/NoP-core-bandwidth) + NoP-latency-per-hop*hop_num
@@ -131,9 +100,9 @@ def argparser():
     
     return ap
 
-def dump_res(total_latency, fc_latency, mh_latency, nonlinear_latency, nonlinear_latencys, FC_Statistics, MH_Statistics, NonLinear_Statistics, p_NonLinear_Statistics, Statistics):
+def dump_res(total_latency, fc_latency, mh_latency, nonlinear_latency, nonlinear_latencys, FC_Statistics, MH_Statistics, NonLinear_Statistics, p_NonLinear_Statistics, Statistics, group_num):
     print("================================ Results ===============================")
-    Statistics.dump("Total")
+    Statistics.dump("Total", group_num)
     Statistics.latency.dump_portion("Total")
     FC_Statistics.dump("FC")
     FC_Statistics.latency.dump_portion("FC")
@@ -195,18 +164,88 @@ def latency_acc1(stage_latency, Statistics, D):
     Statistics.latency.ppu += stage_latency.ppu * D
     Statistics.latency.weight_loading += stage_latency.weight_loading * D
     Statistics.latency.dynamic_weight_loading += stage_latency.dynamic_weight_loading * D
+    
     Statistics.latency.IA_loading += stage_latency.IA_loading * D
-    Statistics.latency.NoC_latency += stage_latency.NoC_latency * D
-    Statistics.latency.NoP_latency += stage_latency.NoP_latency * D 
+    Statistics.latency.IA_loading_FC_operand += stage_latency.IA_loading_FC_operand * D
+    Statistics.latency.IA_loading_FC_partialsum += stage_latency.IA_loading_FC_partialsum * D
+    Statistics.latency.IA_loading_residual += stage_latency.IA_loading_residual * D
+    Statistics.latency.IA_loading_FC_wb += stage_latency.IA_loading_FC_wb * D
+    Statistics.latency.IA_loading_IA_rotation += stage_latency.IA_loading_IA_rotation * D
+    Statistics.latency.IA_loading_IA_rotation_wb += stage_latency.IA_loading_IA_rotation_wb * D
+    Statistics.latency.IA_loading_MH += stage_latency.IA_loading_MH * D
+    Statistics.latency.IA_loading_softmax += stage_latency.IA_loading_softmax * D
+    Statistics.latency.IA_loading_LN += stage_latency.IA_loading_LN * D
+    Statistics.latency.IA_loading_split_concat += stage_latency.IA_loading_split_concat * D
+        
+    Statistics.latency.NoC_transactions += stage_latency.NoC_transactions * D
+    Statistics.latency.NoC_transactions_FC_partialsum += stage_latency.NoC_transactions_FC_partialsum * D
+    Statistics.latency.NoC_transactions_IA_rotation += stage_latency.NoC_transactions_IA_rotation * D
+    Statistics.latency.NoC_transactions_LN += stage_latency.NoC_transactions_LN * D
+    Statistics.latency.NoC_transactions_split_concat += stage_latency.NoC_transactions_split_concat * D
+    Statistics.latency.NoC_transactions_softmax += stage_latency.NoC_transactions_softmax * D
+    
+    Statistics.latency.NoP_transactions += stage_latency.NoP_transactions * D 
+    Statistics.latency.NoP_transactions_IA_rotation += stage_latency.NoP_transactions_IA_rotation * D
+    Statistics.latency.NoP_transactions_LN += stage_latency.NoP_transactions_LN * D
+    Statistics.latency.NoP_transactions_split_concat += stage_latency.NoP_transactions_split_concat * D
+    Statistics.latency.NoP_transactions_softmax += stage_latency.NoP_transactions_softmax * D
+    
+    # Statistics.latency.NoC_latency += stage_latency.NoC_latency * D
+    # Statistics.latency.NoC_latency_FC_partialsum += stage_latency.NoC_latency_FC_partialsum * D
+    # Statistics.latency.NoC_latency_IA_rotation += stage_latency.NoC_latency_IA_rotation * D
+    # Statistics.latency.NoC_latency_LN += stage_latency.NoC_latency_LN * D
+    # Statistics.latency.NoC_latency_split_concat += stage_latency.NoC_latency_split_concat * D
+    # Statistics.latency.NoC_latency_softmax += stage_latency.NoC_latency_softmax * D
+    
+    # Statistics.latency.NoP_latency += stage_latency.NoP_latency * D 
+    # Statistics.latency.NoP_latency_IA_rotation += stage_latency.NoP_latency_IA_rotation * D
+    # Statistics.latency.NoP_latency_LN += stage_latency.NoP_latency_LN * D
+    # Statistics.latency.NoP_latency_split_concat += stage_latency.NoP_latency_split_concat * D
+    # Statistics.latency.NoP_latency_softmax += stage_latency.NoP_latency_softmax * D
     
 def latency_substract(FC_Statistics, nonlinear_latency):
     FC_Statistics.latency.cal -= nonlinear_latency.cal
     FC_Statistics.latency.ppu -= nonlinear_latency.ppu
     FC_Statistics.latency.weight_loading -= nonlinear_latency.weight_loading
     FC_Statistics.latency.dynamic_weight_loading -= nonlinear_latency.dynamic_weight_loading
+    
     FC_Statistics.latency.IA_loading -= nonlinear_latency.IA_loading
-    FC_Statistics.latency.NoC_latency -= nonlinear_latency.NoC_latency
-    FC_Statistics.latency.NoP_latency -= nonlinear_latency.NoP_latency
+    FC_Statistics.latency.IA_loading_FC_operand -= nonlinear_latency.IA_loading_FC_operand
+    FC_Statistics.latency.IA_loading_FC_partialsum -= nonlinear_latency.IA_loading_FC_partialsum
+    FC_Statistics.latency.IA_loading_residual -= nonlinear_latency.IA_loading_residual
+    FC_Statistics.latency.IA_loading_FC_wb -= nonlinear_latency.IA_loading_FC_wb
+    FC_Statistics.latency.IA_loading_IA_rotation -= nonlinear_latency.IA_loading_IA_rotation
+    FC_Statistics.latency.IA_loading_IA_rotation_wb -= nonlinear_latency.IA_loading_IA_rotation_wb
+    FC_Statistics.latency.IA_loading_MH -= nonlinear_latency.IA_loading_MH
+    FC_Statistics.latency.IA_loading_softmax -= nonlinear_latency.IA_loading_softmax
+    FC_Statistics.latency.IA_loading_LN -= nonlinear_latency.IA_loading_LN
+    FC_Statistics.latency.IA_loading_split_concat -= nonlinear_latency.IA_loading_split_concat
+    
+    FC_Statistics.latency.NoC_transactions -= nonlinear_latency.NoC_transactions
+    FC_Statistics.latency.NoC_transactions_FC_partialsum -= nonlinear_latency.NoC_transactions_FC_partialsum
+    FC_Statistics.latency.NoC_transactions_IA_rotation -= nonlinear_latency.NoC_transactions_IA_rotation
+    FC_Statistics.latency.NoC_transactions_LN -= nonlinear_latency.NoC_transactions_LN
+    FC_Statistics.latency.NoC_transactions_split_concat -= nonlinear_latency.NoC_transactions_split_concat 
+    FC_Statistics.latency.NoC_transactions_softmax -= nonlinear_latency.NoC_transactions_softmax
+    
+    FC_Statistics.latency.NoP_transactions -= nonlinear_latency.NoP_transactions
+    FC_Statistics.latency.NoP_transactions_IA_rotation -= nonlinear_latency.NoP_transactions_IA_rotation
+    FC_Statistics.latency.NoP_transactions_LN -= nonlinear_latency.NoP_transactions_LN
+    FC_Statistics.latency.NoP_transactions_split_concat -= nonlinear_latency.NoP_transactions_split_concat
+    FC_Statistics.latency.NoP_transactions_softmax -= nonlinear_latency.NoP_transactions_softmax
+    
+    # FC_Statistics.latency.NoC_latency -= nonlinear_latency.NoC_latency
+    # FC_Statistics.latency.NoC_latency_FC_partialsum -= nonlinear_latency.NoC_latency_FC_partialsum
+    # FC_Statistics.latency.NoC_latency_IA_rotation -= nonlinear_latency.NoC_latency_IA_rotation
+    # FC_Statistics.latency.NoC_latency_LN -= nonlinear_latency.NoC_latency_LN
+    # FC_Statistics.latency.NoC_latency_split_concat -= nonlinear_latency.NoC_latency_split_concat 
+    # FC_Statistics.latency.NoC_latency_softmax -= nonlinear_latency.NoC_latency_softmax
+    
+    # FC_Statistics.latency.NoP_latency -= nonlinear_latency.NoP_latency
+    # FC_Statistics.latency.NoP_latency_IA_rotation -= nonlinear_latency.NoP_latency_IA_rotation
+    # FC_Statistics.latency.NoP_latency_LN -= nonlinear_latency.NoP_latency_LN
+    # FC_Statistics.latency.NoP_latency_split_concat -= nonlinear_latency.NoP_latency_split_concat
+    # FC_Statistics.latency.NoP_latency_softmax -= nonlinear_latency.NoP_latency_softmax
 
 def latency_acc2(stage_latency, latencys):
     new_latencys = latency()
@@ -215,9 +254,44 @@ def latency_acc2(stage_latency, latencys):
     new_latencys.ppu = latencys.ppu + stage_latency.ppu
     new_latencys.weight_loading = latencys.weight_loading + stage_latency.weight_loading
     new_latencys.dynamic_weight_loading = latencys.dynamic_weight_loading + stage_latency.dynamic_weight_loading
+    
     new_latencys.IA_loading = latencys.IA_loading + stage_latency.IA_loading
-    new_latencys.NoC_latency = latencys.NoC_latency + stage_latency.NoC_latency
-    new_latencys.NoP_latency = latencys.NoP_latency + stage_latency.NoP_latency
+    new_latencys.IA_loading_FC_operand = latencys.IA_loading_FC_operand + stage_latency.IA_loading_FC_operand
+    new_latencys.IA_loading_FC_partialsum = latencys.IA_loading_FC_partialsum + stage_latency.IA_loading_FC_partialsum
+    new_latencys.IA_loading_residual = latencys.IA_loading_residual + stage_latency.IA_loading_residual
+    new_latencys.IA_loading_FC_wb = latencys.IA_loading_FC_wb + stage_latency.IA_loading_FC_wb
+    new_latencys.IA_loading_IA_rotation = latencys.IA_loading_IA_rotation + stage_latency.IA_loading_IA_rotation
+    new_latencys.IA_loading_IA_rotation_wb = latencys.IA_loading_IA_rotation_wb + stage_latency.IA_loading_IA_rotation_wb
+    new_latencys.IA_loading_MH = latencys.IA_loading_MH + stage_latency.IA_loading_MH
+    new_latencys.IA_loading_softmax = latencys.IA_loading_softmax + stage_latency.IA_loading_softmax
+    new_latencys.IA_loading_LN = latencys.IA_loading_LN + stage_latency.IA_loading_LN
+    new_latencys.IA_loading_split_concat = latencys.IA_loading_split_concat + stage_latency.IA_loading_split_concat
+        
+    new_latencys.NoC_transactions = latencys.NoC_transactions + stage_latency.NoC_transactions
+    new_latencys.NoC_transactions_FC_partialsum = latencys.NoC_transactions_FC_partialsum + stage_latency.NoC_transactions_FC_partialsum
+    new_latencys.NoC_transactions_IA_rotation = latencys.NoC_transactions_IA_rotation + stage_latency.NoC_transactions_IA_rotation
+    new_latencys.NoC_transactions_LN = latencys.NoC_transactions_LN + stage_latency.NoC_transactions_LN
+    new_latencys.NoC_transactions_split_concat = latencys.NoC_transactions_split_concat + stage_latency.NoC_transactions_split_concat 
+    new_latencys.NoC_transactions_softmax = latencys.NoC_transactions_softmax + stage_latency.NoC_transactions_softmax
+    
+    new_latencys.NoP_transactions = latencys.NoP_transactions + stage_latency.NoP_transactions
+    new_latencys.NoP_transactions_IA_rotation = latencys.NoP_transactions_IA_rotation + stage_latency.NoP_transactions_IA_rotation
+    new_latencys.NoP_transactions_LN = latencys.NoP_transactions_LN + stage_latency.NoP_transactions_LN
+    new_latencys.NoP_transactions_split_concat = latencys.NoP_transactions_split_concat + stage_latency.NoP_transactions_split_concat
+    new_latencys.NoP_transactions_softmax = latencys.NoP_transactions_softmax + stage_latency.NoP_transactions_softmax
+    
+    # new_latencys.NoC_latency = latencys.NoC_latency + stage_latency.NoC_latency
+    # new_latencys.NoC_latency_FC_partialsum = latencys.NoC_latency_FC_partialsum + stage_latency.NoC_latency_FC_partialsum
+    # new_latencys.NoC_latency_IA_rotation = latencys.NoC_latency_IA_rotation + stage_latency.NoC_latency_IA_rotation
+    # new_latencys.NoC_latency_LN = latencys.NoC_latency_LN + stage_latency.NoC_latency_LN
+    # new_latencys.NoC_latency_split_concat = latencys.NoC_latency_split_concat + stage_latency.NoC_latency_split_concat 
+    # new_latencys.NoC_latency_softmax = latencys.NoC_latency_softmax + stage_latency.NoC_latency_softmax
+    
+    # new_latencys.NoP_latency = latencys.NoP_latency + stage_latency.NoP_latency
+    # new_latencys.NoP_latency_IA_rotation = latencys.NoP_latency_IA_rotation + stage_latency.NoP_latency_IA_rotation
+    # new_latencys.NoP_latency_LN = latencys.NoP_latency_LN + stage_latency.NoP_latency_LN
+    # new_latencys.NoP_latency_split_concat = latencys.NoP_latency_split_concat + stage_latency.NoP_latency_split_concat
+    # new_latencys.NoP_latency_softmax = latencys.NoP_latency_softmax + stage_latency.NoP_latency_softmax
     
     return new_latencys
 
@@ -357,18 +431,21 @@ def stage_latency(die_num, core_num, weight_cols, weight_rows, mac_lane, mac_num
                         # latencys.IA_loading += IA_rows_per_round_list[0] * psum_num
                     
                 for l in range(rounds_IA):
-                    # laoding IA, but do not need to load weights
+                    # loading IA, but do not need to load weights
                     latencys.IA_loading += IA_rows_per_round_list[l] * psum_num
+                    latencys.IA_loading_FC_operand += IA_rows_per_round_list[l] * psum_num
                     IA_loading1 += IA_rows_per_round_list[l] * psum_num
                     
                     # there are sevral cases IA loading is not needed
                     # 1. very first round, thanks to LN
                     if (l == 0) and (k == 0) and (j == 0) and (partition_idx == 0) and is_LN_before:
                         latencys.IA_loading -= IA_rows_per_round_list[l] * psum_num
+                        latencys.IA_loading_FC_operand -= IA_rows_per_round_list[l] * psum_num
                         IA_loading1 -= IA_rows_per_round_list[l] * psum_num
                     # 2. very first round of a partition, thanks to rotation
                     elif (partition_idx > 0) and (l == 0) and (k == 0) and (j == 0):
                         latencys.IA_loading -= IA_rows_per_round_list[l] * psum_num
+                        latencys.IA_loading_FC_operand -= IA_rows_per_round_list[l] * psum_num
                         IA_loading1 -= IA_rows_per_round_list[l] * psum_num
                     
                     # if ((k > 0) or (partition_idx == 0)):
@@ -382,31 +459,49 @@ def stage_latency(die_num, core_num, weight_cols, weight_rows, mac_lane, mac_num
                     latencys.cal += maclane_col_num * maclane_row_num * mac_lane * psum_num
                     # latencys.psum_cube_cal += (psum_num - 1) * maclane_col_num * maclane_row_num 
                     
+                    n = 0
                     if k > 0 or partition_idx > 0:
                         # if this is not the first sub-round, we should get partial sum from previous sub-rounds and add to partial sum of this sub-round
                         # NOTE: partial sum comes from all HMCs
                         latencys.IA_loading += math.ceil(3 * maclane_col_num * maclane_row_num * math.pow(mac_lane, 2) / mac_num / core_num)
+                        latencys.IA_loading_FC_partialsum += math.ceil(3 * maclane_col_num * maclane_row_num * math.pow(mac_lane, 2) / mac_num / core_num)
                         IA_loading2 += math.ceil(3 * maclane_col_num * maclane_row_num * math.pow(mac_lane, 2) / mac_num / core_num)
+                        n += 1
                     if (partition_idx == (len(IA_rounds_per_die_list) - 1)) and (k == (i - 1)) and is_residual_after:
                         # if this is the last sub-round and there's a residual connection afterwards
                         latencys.IA_loading += math.ceil(maclane_col_num * maclane_row_num * math.pow(mac_lane, 2) / mac_num / core_num)
+                        latencys.IA_loading_residual += math.ceil(maclane_col_num * maclane_row_num * math.pow(mac_lane, 2) / mac_num / core_num)
                         p_NonLinear_Statistics[4].latency.IA_loading += math.ceil(maclane_col_num * maclane_row_num * math.pow(mac_lane, 2) / mac_num / core_num)
+                        p_NonLinear_Statistics[4].latency.IA_loading_residual += math.ceil(maclane_col_num * maclane_row_num * math.pow(mac_lane, 2) / mac_num / core_num)
                         nonlinear_latencys.IA_loading += math.ceil(maclane_col_num * maclane_row_num * math.pow(mac_lane, 2) / mac_num / core_num)
+                        nonlinear_latencys.IA_loading_residual += math.ceil(maclane_col_num * maclane_row_num * math.pow(mac_lane, 2) / mac_num / core_num)
                         tmp += math.ceil(maclane_col_num * maclane_row_num * math.pow(mac_lane, 2) / mac_num / core_num)
+                        n += 1
                         
                     # add N/(N+1)/N+2 cubes together
                     # route to PPU
-                    latencys.add_NoC_cores_to_ppu(3 * maclane_col_num * maclane_row_num * math.pow(mac_lane, 2))
-                    # latencys.psum_cube_cal_N += maclane_col_num * maclane_row_num
+                    # latencys.add_NoC_cores_to_ppu(3 * maclane_col_num * maclane_row_num * math.pow(mac_lane, 2), "FC_partialsum")
+                    latencys.NoC_transactions += (core_num + n) * 3 * maclane_col_num * maclane_row_num * math.pow(mac_lane, 2)
+                    latencys.NoC_transactions_FC_partialsum += (core_num + n) * 3 * maclane_col_num * maclane_row_num * math.pow(mac_lane, 2)
+                    
                     # calculate
                     latencys.add_ppu_count(3 * maclane_col_num * maclane_row_num * math.pow(mac_lane, 2) * core_num)
+                    
                     # route to cores
-                    # FIXME this is not precise, since data can be transferred to mutiple cores
-                    # still partial sum here
-                    latencys.add_NoC_ppu_to_core(3 * maclane_col_num * maclane_row_num * math.pow(mac_lane, 2))
+                    # latencys.add_NoC_ppu_to_core(3 * maclane_col_num * maclane_row_num * math.pow(mac_lane, 2), "FC_partialsum")
+                    if (partition_idx == (len(IA_rounds_per_die_list) - 1)) and (k == (i - 1)):
+                        # if last round, complete sum
+                        latencys.NoC_transactions += maclane_col_num * maclane_row_num * math.pow(mac_lane, 2)
+                        latencys.NoC_transactions_FC_partialsum += maclane_col_num * maclane_row_num * math.pow(mac_lane, 2)
+                    else: 
+                        # not last round, route back partial sum
+                        latencys.NoC_transactions += 3 * maclane_col_num * maclane_row_num * math.pow(mac_lane, 2)
+                        latencys.NoC_transactions_FC_partialsum += 3 * maclane_col_num * maclane_row_num * math.pow(mac_lane, 2)
+                    
                     # write mac-lane * mac-lane block back into HMC
                     # write back partial sum or complete sum
                     latencys.IA_loading += (1 if (partition_idx == (len(IA_rounds_per_die_list) - 1)) and (k == (i - 1)) else 3) * maclane_col_num * maclane_row_num * math.ceil(math.pow(mac_lane, 2) / mac_num / core_num)
+                    latencys.IA_loading_FC_wb += (1 if (partition_idx == (len(IA_rounds_per_die_list) - 1)) and (k == (i - 1)) else 3) * maclane_col_num * maclane_row_num * math.ceil(math.pow(mac_lane, 2) / mac_num / core_num)
                     IA_loading3 += (1 if (partition_idx == (len(IA_rounds_per_die_list) - 1)) and (k == (i - 1)) else 3) * maclane_col_num * maclane_row_num * math.ceil(math.pow(mac_lane, 2) / mac_num / core_num)
 
                     if calculation_print and debug_f:
@@ -423,25 +518,51 @@ def stage_latency(die_num, core_num, weight_cols, weight_rows, mac_lane, mac_num
         if partition_idx + 1 < len(IA_rounds_per_die_list):          
             # last subround is already in SRAM, no loading
             latencys.IA_loading += max(math.ceil(IA_big_col_per_die_list[partition_idx] * psum_num * IA_rows / core_num) - psum_num * IA_rows_per_round_list[-1], 0)
+            latencys.IA_loading_IA_rotation += max(math.ceil(IA_big_col_per_die_list[partition_idx] * psum_num * IA_rows / core_num) - psum_num * IA_rows_per_round_list[-1], 0)
             p_NonLinear_Statistics[5].latency.IA_loading += max(math.ceil(IA_big_col_per_die_list[partition_idx] * psum_num * IA_rows / core_num) - psum_num * IA_rows_per_round_list[-1], 0)
+            p_NonLinear_Statistics[5].latency.IA_loading_IA_rotation += max(math.ceil(IA_big_col_per_die_list[partition_idx] * psum_num * IA_rows / core_num) - psum_num * IA_rows_per_round_list[-1], 0)
             nonlinear_latencys.IA_loading += max(math.ceil(IA_big_col_per_die_list[partition_idx] * psum_num * IA_rows / core_num) - psum_num * IA_rows_per_round_list[-1], 0)
+            nonlinear_latencys.IA_loading_IA_rotation += max(math.ceil(IA_big_col_per_die_list[partition_idx] * psum_num * IA_rows / core_num) - psum_num * IA_rows_per_round_list[-1], 0)
             IA_loading4 += max(math.ceil(IA_big_col_per_die_list[partition_idx] * psum_num * IA_rows / core_num) - psum_num * IA_rows_per_round_list[-1], 0)
             
             # sending & receriving
-            latencys.add_NoC_cores_to_ppu(IA_big_col_per_die_list[partition_idx] * psum_num * IA_rows * mac_num / core_num)
-            latencys.add_NoP_rotation(IA_big_col_per_die_list[partition_idx] * psum_num * IA_rows * mac_num)  
-            latencys.add_NoC_ppu_to_cores_m(IA_big_col_per_die_list[partition_idx + 1] * psum_num * IA_rows * mac_num / core_num)
-            p_NonLinear_Statistics[5].latency.add_NoC_cores_to_ppu(IA_big_col_per_die_list[partition_idx] * psum_num * IA_rows * mac_num / core_num)
-            p_NonLinear_Statistics[5].latency.add_NoP_rotation(IA_big_col_per_die_list[partition_idx] * psum_num * IA_rows * mac_num)  
-            p_NonLinear_Statistics[5].latency.add_NoC_ppu_to_cores_m(IA_big_col_per_die_list[partition_idx + 1] * psum_num * IA_rows / core_num)
-            nonlinear_latencys.add_NoC_cores_to_ppu(IA_big_col_per_die_list[partition_idx] * psum_num * IA_rows * mac_num / core_num)
-            nonlinear_latencys.add_NoP_rotation(IA_big_col_per_die_list[partition_idx] * psum_num * IA_rows * mac_num)  
-            nonlinear_latencys.add_NoC_ppu_to_cores_m(IA_big_col_per_die_list[partition_idx + 1] * psum_num * IA_rows / core_num)
+            # latencys.add_NoC_cores_to_ppu(IA_big_col_per_die_list[partition_idx] * psum_num * IA_rows * mac_num / core_num, "IA_rotation")
+            latencys.NoC_transactions += max(IA_big_col_per_die_list) * psum_num * IA_rows * mac_num
+            latencys.NoC_transactions_IA_rotation += max(IA_big_col_per_die_list) * psum_num * IA_rows * mac_num
+            # latencys.add_NoP_rotation(IA_big_col_per_die_list[partition_idx] * psum_num * IA_rows * mac_num)  
+            latencys.NoP_transactions += weight_rows * IA_rows
+            latencys.NoP_transactions_IA_rotation += weight_rows * IA_rows
+            # latencys.add_NoC_ppu_to_cores_m(IA_big_col_per_die_list[partition_idx + 1] * psum_num * IA_rows * mac_num / core_num, "IA_rotation")
+            latencys.NoC_transactions += max(IA_big_col_per_die_list) * psum_num * IA_rows * mac_num
+            latencys.NoC_transactions_IA_rotation += max(IA_big_col_per_die_list) * psum_num * IA_rows * mac_num
+            
+            # p_NonLinear_Statistics[5].latency.add_NoC_cores_to_ppu(IA_big_col_per_die_list[partition_idx] * psum_num * IA_rows * mac_num / core_num, "IA_rotation")
+            p_NonLinear_Statistics[5].latency.NoC_transactions += max(IA_big_col_per_die_list) * psum_num * IA_rows * mac_num
+            p_NonLinear_Statistics[5].latency.NoC_transactions_IA_rotation += max(IA_big_col_per_die_list) * psum_num * IA_rows * mac_num
+            # p_NonLinear_Statistics[5].latency.add_NoP_rotation(IA_big_col_per_die_list[partition_idx] * psum_num * IA_rows * mac_num)  
+            p_NonLinear_Statistics[5].latency.NoP_transactions += weight_rows * IA_rows
+            p_NonLinear_Statistics[5].latency.NoP_transactions_IA_rotation += weight_rows * IA_rows
+            # p_NonLinear_Statistics[5].latency.add_NoC_ppu_to_cores_m(IA_big_col_per_die_list[partition_idx + 1] * psum_num * IA_rows / core_num, "IA_rotation")
+            p_NonLinear_Statistics[5].latency.NoC_transactions += max(IA_big_col_per_die_list) * psum_num * IA_rows * mac_num
+            p_NonLinear_Statistics[5].latency.NoC_transactions_IA_rotation += max(IA_big_col_per_die_list) * psum_num * IA_rows * mac_num
+            
+            # nonlinear_latencys.add_NoC_cores_to_ppu(IA_big_col_per_die_list[partition_idx] * psum_num * IA_rows * mac_num / core_num, "IA_rotation")
+            nonlinear_latencys.NoC_transactions += max(IA_big_col_per_die_list) * psum_num * IA_rows * mac_num
+            nonlinear_latencys.NoC_transactions_IA_rotation += max(IA_big_col_per_die_list) * psum_num * IA_rows * mac_num
+            # nonlinear_latencys.add_NoP_rotation(IA_big_col_per_die_list[partition_idx] * psum_num * IA_rows * mac_num)  
+            nonlinear_latencys.NoP_transactions += weight_rows * IA_rows
+            nonlinear_latencys.NoP_transactions_IA_rotation += weight_rows * IA_rows
+            # nonlinear_latencys.add_NoC_ppu_to_cores_m(IA_big_col_per_die_list[partition_idx + 1] * psum_num * IA_rows / core_num, "IA_rotation")
+            nonlinear_latencys.NoC_transactions += max(IA_big_col_per_die_list) * psum_num * IA_rows * mac_num
+            nonlinear_latencys.NoC_transactions_IA_rotation += max(IA_big_col_per_die_list) * psum_num * IA_rows * mac_num
             
             # the first sub-round's data don't need to store 
             latencys.IA_loading += max(math.ceil(IA_big_col_per_die_list[partition_idx + 1] * psum_num * IA_rows / core_num) - psum_num * IA_rows_per_round_list[0], 0)
+            latencys.IA_loading_IA_rotation_wb += max(math.ceil(IA_big_col_per_die_list[partition_idx + 1] * psum_num * IA_rows / core_num) - psum_num * IA_rows_per_round_list[0], 0)
             p_NonLinear_Statistics[5].latency.IA_loading += max(math.ceil(IA_big_col_per_die_list[partition_idx + 1] * psum_num * IA_rows / core_num) - psum_num * IA_rows_per_round_list[0], 0)
+            p_NonLinear_Statistics[5].latency.IA_loading_IA_rotation_wb += max(math.ceil(IA_big_col_per_die_list[partition_idx + 1] * psum_num * IA_rows / core_num) - psum_num * IA_rows_per_round_list[0], 0)
             nonlinear_latencys.IA_loading += max(math.ceil(IA_big_col_per_die_list[partition_idx + 1] * psum_num * IA_rows / core_num) - psum_num * IA_rows_per_round_list[0], 0)
+            nonlinear_latencys.IA_loading_IA_rotation_wb += max(math.ceil(IA_big_col_per_die_list[partition_idx + 1] * psum_num * IA_rows / core_num) - psum_num * IA_rows_per_round_list[0], 0)
             IA_loading5 += max(math.ceil(IA_big_col_per_die_list[partition_idx + 1] * psum_num * IA_rows / core_num) - psum_num * IA_rows_per_round_list[0], 0)
             
             if debug_on:
@@ -486,11 +607,13 @@ def vector_matrix_mul_latency(weight_rows, weight_cols, mac_lane, mac_num, psum_
     if MH_mode == 0 and is_first:
         # MH1, we need load IA, and write result back to SRAM
         latencys.IA_loading += math.ceil(weight_rows / mac_num) * rounds
+        latencys.IA_loading_MH += math.ceil(weight_rows / mac_num) * rounds
         # latencys.IA_loading += math.ceil(weight_rows / mac_num) * rounds
         # latencys.vec_wb_sram += rounds * math.ceil(weight_cols / mac_lane)
     else:
         # latencys.vec_wb += rounds * math.ceil(weight_cols / mac_lane)
         latencys.IA_loading += rounds * math.ceil(weight_cols / mac_num)
+        latencys.IA_loading_MH += rounds * math.ceil(weight_cols / mac_num)
         
     if debug_on:
         print("in vector_matrix_mul_latency")
@@ -524,9 +647,11 @@ def matrix_matrix_mul_latency(IA_rows, weight_rows, weight_cols, mac_lane, mac_n
     if MH_mode == 0:
         # MH1, we need to load IA
         latencys.IA_loading += math.ceil(weight_rows / mac_num) * rounds * IA_rows
+        latencys.IA_loading_MH += math.ceil(weight_rows / mac_num) * rounds * IA_rows
     if (MH_mode == 1) and wb_mode:
         # MH2, and MH1 write back
         latencys.IA_loading += math.ceil(weight_rows / mac_num) * rounds * IA_rows
+        latencys.IA_loading_MH += math.ceil(weight_rows / mac_num) * rounds * IA_rows
     # calculation
     latencys.cal += maclane_col_num * maclane_row_num * psum_num * mac_lane * rounds
     # partial sum addition within a mat-mat-multiplication
@@ -539,6 +664,7 @@ def matrix_matrix_mul_latency(IA_rows, weight_rows, weight_cols, mac_lane, mac_n
         # latencys.vec_wb += rounds * mac_lane * maclane_col_num * maclane_row_num
         # write back to HMC
         latencys.IA_loading += rounds * math.ceil(math.pow(mac_lane, 2) / mac_num) * maclane_col_num * maclane_row_num
+        latencys.IA_loading_MH += rounds * math.ceil(math.pow(mac_lane, 2) / mac_num) * maclane_col_num * maclane_row_num
         
     if debug_on:
         print("in matrix_matrix_mul_latency")
@@ -720,12 +846,10 @@ def MH_latency(die_num, core_num, seq_len_table, group_idx_table, B, H, sram2_he
     if MH_alg_level_mode == 0:
         for i in range(die_num):
             latencys.append(latency())
-            latencys[i].get_params(params)
             softmax_loading_amount.append(0)
     else:
         for i in range(core_num):
             latencys.append(latency()) 
-            latencys[i].get_params(params)
             softmax_loading_amount.append(0)
         
     """ begin MH execution """
@@ -846,6 +970,7 @@ def MH_latency(die_num, core_num, seq_len_table, group_idx_table, B, H, sram2_he
                     # MH1 result cannot be hold in SRAM, we should load and store for softmax
                     softmax_loading_amount[group_idx] += s * s * rounds
                     latencys[group_idx].IA_loading += math.ceil(s * s / mac_num) * rounds 
+                    latencys[group_idx].IA_loading_softmax += math.ceil(s * s / mac_num) * rounds 
             else:
                 """ generation stage """
                 if sram2_height * mac_num < head_embedding_dim * s:
@@ -902,16 +1027,28 @@ def MH_latency(die_num, core_num, seq_len_table, group_idx_table, B, H, sram2_he
     
     # FIXME this should be right, no mismatch
     NonLinear_Statistics.latency.IA_loading += math.ceil(max(softmax_loading_amount) / mac_num) * 2
+    NonLinear_Statistics.latency.IA_loading_softmax += math.ceil(max(softmax_loading_amount) / mac_num) * 2
     p_NonLinear_Statistics[2].latency.IA_loading += math.ceil(max(softmax_loading_amount) / mac_num) * 2
+    p_NonLinear_Statistics[2].latency.IA_loading_softmax += math.ceil(max(softmax_loading_amount) / mac_num) * 2
     
+    if MH_alg_level_mode == 0:
+        for i in range(die_num):
+            latencys[i].get_params(params)
+    else:
+        for i in range(core_num):
+            latencys[i].get_params(params)
     # FIXME
-    sum = [0] * (die_num if MH_alg_level_mode == 0 else core_num)
+    sum = []
     for i in range(len(latencys)):
-        sum[i] = latencys[i].overall_latency()
-    if debug_on:
-        print(f"MH latencys: {sum}")     
-        print(f"max latency idx: {sum.index(max(sum))}")
-        
+        sum.append(latencys[i].overall_latency())
+        # print(latencys[i].overall_latency())
+    # if debug_on:
+    #     print(f"MH latencys: {sum}")     
+    #     print(f"max latency idx: {sum.index(max(sum))}")
+    # for l in latencys:
+    #     l.dump_portion("0") 
+    # print(sum) 
+    # print(sum.index(max(sum)))  
     return latencys[sum.index(max(sum))]  
 
 def LayerNorm_latency(IA_rows, IA_cols, die_num, core_num, mac_lane, mac_num, psum_num, sram2_height, params, debug_on=False):
@@ -946,6 +1083,7 @@ def LayerNorm_latency(IA_rows, IA_cols, die_num, core_num, mac_lane, mac_num, ps
     
     # 1. loading all data to the logic die                # number of big column in each core
     latencys.IA_loading += IA_rows * psum_num * math.ceil(IA_big_col_per_die_list[0] / core_num)
+    latencys.IA_loading_LN += IA_rows * psum_num * math.ceil(IA_big_col_per_die_list[0] / core_num)
     
     # 2.1 every core calcualtes their local average(addition+division)
     # latencys.add_8 += IA_rows * psum_num * mac_num * math.ceil(IA_big_col_per_die_list[0] / core_num)
@@ -958,14 +1096,18 @@ def LayerNorm_latency(IA_rows, IA_cols, die_num, core_num, mac_lane, mac_num, ps
     # latencys.add_24 += core_num * IA_rows
     # latencys.division += IA_rows
     # for i in range(core_num):
-    latencys.add_NoC_cores_to_ppu(IA_rows * 3)
+    # latencys.add_NoC_cores_to_ppu(IA_rows * 3, "LN")
+    latencys.NoC_transactions += core_num * IA_rows * 3
+    latencys.NoC_transactions_LN += core_num * IA_rows * 3
     latencys.add_ppu_count(core_num * IA_rows * 3)
     latencys.add_ppu_count(IA_rows * 3)
     
     # 3.1 NoP to shared PPU
     # latencys.NoP_24 += die_num * IA_rows
     # for i in range(die_num):
-    latencys.add_NoP_dies_to_ppu(IA_rows * 3)
+    # latencys.add_NoP_dies_to_ppu(IA_rows * 3, "LN")
+    latencys.NoP_transactions += IA_rows * 3 * die_num
+    latencys.NoP_transactions_LN += IA_rows * 3 * die_num
     
     # 3.2 calculate the overall average
     # latencys.add_24 += die_num * IA_rows
@@ -976,12 +1118,16 @@ def LayerNorm_latency(IA_rows, IA_cols, die_num, core_num, mac_lane, mac_num, ps
     # 3.3 NoP to each die
     # latencys.NoP_24 += IA_rows
     # for i in range(die_num):
-    latencys.add_NoP_ppu_to_dies_s(IA_rows * 3)
+    # latencys.add_NoP_ppu_to_dies_s(IA_rows * 3, "LN")
+    latencys.NoP_transactions += IA_rows * 3
+    latencys.NoP_transactions_LN += IA_rows * 3
     
     # 4.1 NoC average to each core
     # latencys.NoC_24 += IA_rows
     # for i in range(core_num):
-    latencys.add_NoC_ppu_to_cores_s(IA_rows * 3)
+    # latencys.add_NoC_ppu_to_cores_s(IA_rows * 3, "LN")
+    latencys.NoC_transactions += IA_rows * 3
+    latencys.NoC_transactions_LN += IA_rows * 3
     
     # 4.2 each core calculates portion of Var's denominator
     # latencys.substract_square += IA_rows * psum_num * mac_num * math.ceil(IA_big_col_per_die_list[0] / core_num)
@@ -996,14 +1142,18 @@ def LayerNorm_latency(IA_rows, IA_cols, die_num, core_num, mac_lane, mac_num, ps
     # latencys.add_24 += core_num * IA_rows
     # latencys.division += IA_rows
     # for i in range(core_num):
-    latencys.add_NoC_cores_to_ppu(IA_rows * 3)
+    # latencys.add_NoC_cores_to_ppu(IA_rows * 3, "LN")
+    latencys.NoC_transactions += core_num * IA_rows *3
+    latencys.NoC_transactions_LN += core_num * IA_rows *3
     latencys.add_ppu_count(core_num * IA_rows * 3)
     latencys.add_ppu_count(IA_rows * 3)
     
     # 5.2 NoP to shared PPU
     # latencys.NoP_24 += die_num * IA_rows
     # for i in range(die_num):
-    latencys.add_NoP_dies_to_ppu(IA_rows * 3)
+    # latencys.add_NoP_dies_to_ppu(IA_rows * 3, "LN")
+    latencys.NoP_transactions += IA_rows * 3 * die_num
+    latencys.NoP_transactions_LN += IA_rows * 3 * die_num
     
     # 5.3 calculate the overall average
     # latencys.add_24 += die_num * IA_rows
@@ -1014,12 +1164,16 @@ def LayerNorm_latency(IA_rows, IA_cols, die_num, core_num, mac_lane, mac_num, ps
     # 5.4 NoP to each die
     # latencys.NoP_24 += IA_rows
     # for i in range(die_num):
-    latencys.add_NoP_ppu_to_dies_s(IA_rows * 3)
+    # latencys.add_NoP_ppu_to_dies_s(IA_rows * 3, "LN")
+    latencys.NoP_transactions += IA_rows * 3
+    latencys.NoP_transactions_LN += IA_rows * 3
     
     # 6.1 NoC average to each core
     # latencys.NoC_24 += IA_rows
     # for i in range(core_num):
-    latencys.add_NoC_ppu_to_cores_s(IA_rows * 3)
+    # latencys.add_NoC_ppu_to_cores_s(IA_rows * 3, "LN")
+    latencys.NoC_transactions += IA_rows * 3
+    latencys.NoC_transactions_LN += IA_rows * 3
     
     # 6.2 now every core has EX and Var, each can calculate the final results
     # latencys.LN += IA_rows * psum_num * mac_num * math.ceil(IA_big_col_per_die_list[0] / core_num)
@@ -1028,6 +1182,7 @@ def LayerNorm_latency(IA_rows, IA_cols, die_num, core_num, mac_lane, mac_num, ps
     
     # 7. write back to HMC
     latencys.IA_loading += IA_rows * psum_num * math.ceil(IA_big_col_per_die_list[0] / core_num)
+    latencys.IA_loading_LN += IA_rows * psum_num * math.ceil(IA_big_col_per_die_list[0] / core_num)
     
     # NOTE: here we can left first round of IA on logic die to save latency
     """ calcualte how many rounds of calculation should a die goes through for IA """
@@ -1041,6 +1196,7 @@ def LayerNorm_latency(IA_rows, IA_cols, die_num, core_num, mac_lane, mac_num, ps
     if debug_f:
         print(f"IA_rows_per_round_list: {IA_rows_per_round_list}")
     latencys.IA_loading -= IA_rows_per_round_list[0] * psum_num
+    latencys.IA_loading_LN -= IA_rows_per_round_list[0] * psum_num
 
     # if debug_on:
     #     latencys.dump()
@@ -1151,22 +1307,30 @@ def split_latency(die_num, core_num, seq_len_table, group_idx_table, B, weight_c
             print(f"IA_matrix_out: {IA_matrix_out}")
         
         latencys.IA_loading += math.ceil(max(IA_matrix_out) / core_num)
+        latencys.IA_loading_split_concat += math.ceil(max(IA_matrix_out) / core_num)
         
-        average_list = []
-        for i in range(die_num):
-            average_list.append(math.ceil(IA_matrix_out[i] / (die_num - 1)) * mac_num)
-        if debug_f:
-            print(f"average_list: {average_list}")
+        # average_list = []
+        # for i in range(die_num):
+        #     average_list.append(math.ceil(IA_matrix_out[i] / (die_num - 1)) * mac_num)
+        # if debug_f:
+        #     print(f"average_list: {average_list}")
         # 2. NoP, sending & receiving
         # NoC data to PPU
-        latencys.add_NoC_cores_to_ppu(math.ceil(max(IA_matrix_out) / core_num) * mac_num)
+        # latencys.add_NoC_cores_to_ppu(math.ceil(max(IA_matrix_out) / core_num) * mac_num, "split_concat")
+        latencys.NoC_transactions += max(IA_matrix_out) * mac_num
+        latencys.NoC_transactions_split_concat += max(IA_matrix_out) * mac_num
         # NoP all to all
-        latencys.add_NoP_all_to_all(average_list)
+        # latencys.add_NoP_all_to_all(average_list)
+        latencys.NoP_transactions += sum(IA_matrix_out) * mac_num
+        latencys.NoP_transactions_split_concat += sum(IA_matrix_out) * mac_num
         # NoC data back to cores 
-        latencys.add_NoC_ppu_to_cores_m(math.ceil(max(IA_matrix_in) / core_num) * mac_num)
+        # latencys.add_NoC_ppu_to_cores_m(math.ceil(max(IA_matrix_in) / core_num) * mac_num, "split_concat")
+        latencys.NoC_transactions += max(IA_matrix_in) * mac_num
+        latencys.NoC_transactions_split_concat += max(IA_matrix_in) * mac_num
         
         # 3. writing IA
         latencys.IA_loading += math.ceil(max(IA_matrix_in) / core_num)
+        latencys.IA_loading_split_concat += math.ceil(max(IA_matrix_in) / core_num)
         
         if debug_on:
             print("--------------- Split start -----------------")
@@ -1181,21 +1345,28 @@ def split_latency(die_num, core_num, seq_len_table, group_idx_table, B, weight_c
         """ core level distribution """
         # 1. loading IA
         latencys.IA_loading += math.ceil(IA_rows * max(weights_col_per_die_list) * 2 / 3 / mac_num / core_num) 
+        latencys.IA_loading_concat += math.ceil(IA_rows * max(weights_col_per_die_list) * 2 / 3 / mac_num / core_num) 
         
-        average_list = []
-        for i in range(die_num):
-            average_list.append(IA_rows * weights_col_per_die_list[i] * 2 / 3 / (die_num - 1))
+        # average_list = []
+        # for i in range(die_num):
+        #     average_list.append(IA_rows * weights_col_per_die_list[i] * 2 / 3 / (die_num - 1))
         # 2. NoP
         # NoC data to PPU
-        latencys.add_NoC_cores_to_ppu(IA_rows * max(weights_col_per_die_list) * 2 / 3 / core_num)
+        # latencys.add_NoC_cores_to_ppu(IA_rows * max(weights_col_per_die_list) * 2 / 3 / core_num, "split_concat")
+        latencys.NoC_transactions += IA_rows * max(weights_col_per_die_list) * 2 / 3
+        latencys.NoC_transactions_split_concat += IA_rows * max(weights_col_per_die_list) * 2 / 3
         # NoP all to all
-        latencys.add_NoP_all_to_all(average_list)
+        # latencys.add_NoP_all_to_all(average_list)
+        latencys.NoP_transactions += die_num * IA_rows * max(weights_col_per_die_list) * 2 / 3
+        latencys.NoP_transactions_split_concat += die_num * IA_rows * max(weights_col_per_die_list) * 2 / 3
         # NoC data back to cores
-        latencys.add_NoC_ppu_to_cores_m(IA_rows * max(weights_col_per_die_list) * 2 / 3 / core_num)      
-        # latencys.NoP_8 += math.ceil(IA_rows * max(weights_col_per_die_list) * 2 / 3) * 2
+        # latencys.add_NoC_ppu_to_cores_m(IA_rows * max(weights_col_per_die_list) * 2 / 3 / core_num, "split_concat")      
+        latencys.NoC_transactions += IA_rows * max(weights_col_per_die_list) * 2 / 3
+        latencys.NoC_transactions_split_concat += IA_rows * max(weights_col_per_die_list) * 2 / 3
          
         # 3. writing IA
         latencys.IA_loading += math.ceil(IA_rows * max(weights_col_per_die_list) * 2 / 3 / mac_num / core_num)
+        latencys.IA_loading_concat += math.ceil(IA_rows * max(weights_col_per_die_list) * 2 / 3 / mac_num / core_num)
         
         if debug_on:
             print("--------------- Split start -----------------")
@@ -1246,12 +1417,16 @@ def softmax_latency(die_num, core_num, seq_len_table, group_idx_table, B, H, hea
         latencys.add_ppu_count(rounds * head_embedding_dim)
         
         # 3.1 route local maximum to PPU
-        latencys.add_NoC_cores_to_ppu(1)
+        # latencys.add_NoC_cores_to_ppu(1, "softmax")
+        latencys.NoC_transactions += core_num
+        latencys.NoC_transactions_softmax += core_num
         # 3.2 find global maximum among core_num data
         # latencys.find_max += 1
         latencys.add_ppu_count(core_num)
         # 3.3 route the global maximum back to each core
-        latencys.add_NoC_ppu_to_cores_s(1)
+        # latencys.add_NoC_ppu_to_cores_s(1, "softmax")
+        latencys.NoC_transactions += 1
+        latencys.NoC_transactions_softmax += 1
         
         # 4.1 calculate the exp of every element
         # latencys.substract_exp += rounds * head_embedding_dim
@@ -1265,13 +1440,17 @@ def softmax_latency(die_num, core_num, seq_len_table, group_idx_table, B, H, hea
         
         # 5.1 route local sum to PPU
         # latencys.NoC_24 += 1 
-        latencys.add_NoC_cores_to_ppu(3)
+        # latencys.add_NoC_cores_to_ppu(3, "softmax")
+        latencys.NoC_transactions += core_num * 3
+        latencys.NoC_transactions_softmax += core_num * 3
         # 5.2 get global sum
         # latencys.add_24 += core_num
         latencys.add_ppu_count(core_num)
         # 5.3 route global sum to each core
         # latencys.NoC_24 += 1
-        latencys.add_NoC_ppu_to_cores_s(3)
+        # latencys.add_NoC_ppu_to_cores_s(3, "softmax")
+        latencys.NoC_transactions += 3
+        latencys.NoC_transactions_softmax += 3
         
         # 6. division
         # latencys.division += rounds * head_embedding_dim
@@ -1285,15 +1464,23 @@ def softmax_latency(die_num, core_num, seq_len_table, group_idx_table, B, H, hea
         
         # 3.1 route local maximum to PPU
         # latencys.NoP_8 += 1
-        latencys.add_NoC_core_to_ppu(1)
-        latencys.add_NoP_dies_to_ppu(1)
+        # latencys.add_NoC_core_to_ppu(1, "softmax")
+        latencys.NoC_transactions += 1
+        latencys.NoC_transactions_softmax += 1
+        # latencys.add_NoP_dies_to_ppu(1, "softmax")
+        latencys.NoP_transactions += die_num 
+        latencys.NoP_transactions_softmax += die_num 
         # 3.2 find global maximum among die_num data
         # latencys.find_max += 1
         latencys.add_ppu_count(die_num)
         # 3.3 route the global maximum back to each core
         # latencys.NoP_8 += 1
-        latencys.add_NoP_ppu_to_dies_s(1)
-        latencys.add_NoC_ppu_to_core(1)
+        # latencys.add_NoP_ppu_to_dies_s(1, "softmax")
+        latencys.NoP_transactions += 1
+        latencys.NoP_transactions_softmax += 1
+        # latencys.add_NoC_ppu_to_core(1, "softmax")
+        latencys.NoC_transactions += 1
+        latencys.NoC_transactions_softmax += 1
         
         # 4.1 calculate the exp of every element
         # latencys.substract_exp += rounds * head_embedding_dim
@@ -1307,15 +1494,23 @@ def softmax_latency(die_num, core_num, seq_len_table, group_idx_table, B, H, hea
         
         # 5.1 route local sum to PPU
         # latencys.NoP_24 += 1 
-        latencys.add_NoC_core_to_ppu(3)
-        latencys.add_NoP_dies_to_ppu(3)
+        # latencys.add_NoC_core_to_ppu(3, "softmax")
+        latencys.NoC_transactions += 3
+        latencys.NoC_transactions_softmax += 3
+        # latencys.add_NoP_dies_to_ppu(3, "softmax")
+        latencys.NoP_transactions += die_num  * 3
+        latencys.NoP_transactions_softmax += die_num * 3
         # 5.2 get global sum
         # latencys.add_24 += core_num
         latencys.add_ppu_count(die_num)
         # 5.3 route global sum to each core
         # latencys.NoP_24 += 1
-        latencys.add_NoP_ppu_to_dies_s(3)
-        latencys.add_NoC_ppu_to_core(3)
+        # latencys.add_NoP_ppu_to_dies_s(3, "softmax")
+        latencys.NoP_transactions += 3
+        latencys.NoP_transactions_softmax += 3
+        # latencys.add_NoC_ppu_to_core(3, "softmax")
+        latencys.NoC_transactions += 3
+        latencys.NoC_transactions_softmax += 3
         
         # 6. division
         # latencys.division += rounds * head_embedding_dim
@@ -1370,28 +1565,36 @@ def concat_latency(die_num, core_num, B, seq_len_table, group_idx_table, IA_rows
             IA_matrix_in[i] = IA_rows_in[i] * math.ceil(weights_col_per_die_list[i] / mac_num)
         
         latencys.IA_loading += math.ceil(max(IA_matrix_out) / core_num)
+        latencys.IA_loading_split_concat += math.ceil(max(IA_matrix_out) / core_num)
         
-        average_list = []
-        for i in range(die_num):
-            average_list.append(math.ceil(IA_matrix_out[i] / (die_num - 1)) * mac_num)
+        # average_list = []
+        # for i in range(die_num):
+        #     average_list.append(math.ceil(IA_matrix_out[i] / (die_num - 1)) * mac_num)
         # 2. NoP, sending & receiving
         # NoC data to PPU
-        latencys.add_NoC_cores_to_ppu(math.ceil(max(IA_matrix_out) / core_num) * mac_num)
+        # latencys.add_NoC_cores_to_ppu(math.ceil(max(IA_matrix_out) / core_num) * mac_num, "split_concat")
+        latencys.NoC_transactions += max(IA_matrix_out) * mac_num
+        latencys.NoC_transactions_split_concat += max(IA_matrix_out) * mac_num
         # NoP all to all
-        latencys.add_NoP_all_to_all(average_list)
+        # latencys.add_NoP_all_to_all(average_list)
+        latencys.NoP_transactions += sum(IA_matrix_out) * mac_num
+        latencys.NoP_transactions_split_concat += sum(IA_matrix_out) * mac_num
         # NoC data back to cores 
-        latencys.add_NoC_ppu_to_cores_m(math.ceil(max(IA_matrix_in) / core_num) * mac_num)
+        # latencys.add_NoC_ppu_to_cores_m(math.ceil(max(IA_matrix_in) / core_num) * mac_num, "split_concat")
+        latencys.NoC_transactions += max(IA_matrix_in) * mac_num
+        latencys.NoC_transactions_split_concat += max(IA_matrix_in) * mac_num
         # latencys.NoP_8 += (max(IA_matrix_out) + max(IA_matrix_in)) * mac_num
         
         # 3. writing IA
         latencys.IA_loading += math.ceil(max(IA_matrix_in) / core_num)
+        latencys.IA_loading_split_concat += math.ceil(max(IA_matrix_in) / core_num)
         
         if debug_f:
             print(f"IA_rows_in: {IA_rows_in}")
             print(f"IA_rows_out: {IA_rows_out}")
             print(f"IA_matrix_in: {IA_matrix_in}")
             print(f"IA_matrix_out: {IA_matrix_out}")
-            print(f"average_list: {average_list}")
+            # print(f"average_list: {average_list}")
             
         if debug_on:
             print("------------------ Concat start -------------------")
@@ -1515,25 +1718,6 @@ def simulation(args, requests_pool, Statistics, FC_Statistics, MH_Statistics, No
     nonlinear_latencys = latency()
     total_latency = 0
 
-    # psum_vec_cal_latency = args.psum_vec_cal_latency
-    # psum_cube_cal_latency = args.psum_cube_cal_latency
-    # psum_cube_cal_N_latency = args.psum_cube_cal_N_latency
-    # psum_cube_loading_latency = args.psum_cube_loading_latency
-    # add_8_latency = args.add_8_latency
-    # add_24_latency = args.add_8_latency 
-    # substract_square_latency = args.substract_square_latency
-    # division_latency = args.division_latency
-    # LN_latency = args.LN_latency
-    # find_max_latency = args.find_max_latency
-    # substract_exp_latency = args.substract_exp_latency
-    # IA_loading_latency = args.weight_loading_latency
-    # psum_cube_wb_latency = args.psum_cube_wb_latency
-    # csum_vec_wb_latency = args.csum_vec_wb_latency
-    # csum_vec_wb_sram_latency = args.csum_vec_wb_sram_latency
-    # NoC_8_latency = args.avg_NoC_8_latency
-    # NoC_24_latency = args.avg_NoC_8_latency  
-    # NoP_8_latency = args.avg_NoP_8_latency
-    # NoP_24_latency = args.avg_NoP_8_latency 
     params = [args.cal_latency, args.ppu_latency, args.ppu_boundary, args.weight_loading_latency, args.NoC_core_bandwidth, args.NoP_die_bandwidth, args.ppu_bandwidth, \
                 args.NoC_latency_per_hop, args.NoP_latency_per_hop, args.NoC_h, args.NoC_w, args.NoP_h, args.NoP_w, args.is_ring_mode]
     assert(N == args.NoC_h * args.NoC_w)
@@ -1562,12 +1746,16 @@ def simulation(args, requests_pool, Statistics, FC_Statistics, MH_Statistics, No
     rounds = 0
     mh_count = 0
     
+    s_sum_total = 0
     
     if args.sim_mode == 0:
         IA_rows_sum = 0
         flag2 = False
         once = True
         while requests_done(seq_len_table) == False:
+            round_Stats = Stats()
+            fc_Stats = Stats()
+            round_Stats.latency.get_params(params)
             rounds += 1
             if debug_f:
                 print("======================================= new round =======================================")
@@ -1578,26 +1766,36 @@ def simulation(args, requests_pool, Statistics, FC_Statistics, MH_Statistics, No
                 
             """ profiling """
             IA_rows = 0
+            s_sum = 0
             for e in seq_len_table:
-                if e[0]:
-                    # if in prefill stage
-                    IA_rows += e[2]
-                    # mh_count += math.pow(e[2],2)
-                    mh_count += e[2]
-                else:
-                    # in generation stage
-                    IA_rows += 1
-                    mh_count += e[2]
+                if e[3] == False:
+                    # live job
+                    if e[0]:
+                        # if in prefill stage
+                        IA_rows += e[2]
+                        # mh_count += math.pow(e[2],2)
+                        mh_count += e[2]
+                    else:
+                        # in generation stage
+                        IA_rows += 1
+                        mh_count += e[2]
+                    s_sum += e[2]
+            s_sum_total += s_sum    
             IA_rows_sum += IA_rows
+            # print(f"IA_rows: {IA_rows}")
+            # print(f"s_sum: {s_sum}")
+            # print(f"s_avg: {s_sum / B}")
                     
             if debug_on:
                 print(f"IA rows: {IA_rows}")
                 
             """ LN1 """
-            seg_latency = LayerNorm_latency(IA_rows, embedding_dim, die_num, N, mac_lane, mac_num, W, sram2_height, params, debug_on)
+            seg_latency = LayerNorm_latency(IA_rows, embedding_dim, die_num, N, mac_lane, mac_num, W, sram2_height, params)
             latency_acc1(seg_latency, Statistics, D)
             latency_acc1(seg_latency, NonLinear_Statistics, D)
             latency_acc1(seg_latency, p_NonLinear_Statistics[0], D)
+            latency_acc1(seg_latency, round_Stats, 1)
+            
             if debug_f:
                 seg_latency.dump_portion("SEG")
                 Statistics.latency.dump_portion("total")
@@ -1614,6 +1812,7 @@ def simulation(args, requests_pool, Statistics, FC_Statistics, MH_Statistics, No
             latency_acc1(seg_latency, FC_Statistics, D)
             latency_acc1(nonlinear_latency, NonLinear_Statistics, D)
             latency_substract(FC_Statistics, nonlinear_latency)
+            latency_acc1(seg_latency, round_Stats, 1)
             if debug_f:
                 seg_latency.dump_portion("SEG")
                 Statistics.latency.dump_portion("total")
@@ -1629,6 +1828,7 @@ def simulation(args, requests_pool, Statistics, FC_Statistics, MH_Statistics, No
             latency_acc1(seg_latency, Statistics, D)
             latency_acc1(seg_latency, NonLinear_Statistics, D)
             latency_acc1(seg_latency, p_NonLinear_Statistics[1], D)
+            latency_acc1(seg_latency, round_Stats, 1)
             if debug_f:
                 seg_latency.dump_portion("SEG")
                 Statistics.latency.dump_portion("total")
@@ -1644,6 +1844,7 @@ def simulation(args, requests_pool, Statistics, FC_Statistics, MH_Statistics, No
                                         sram2_height, mac_lane, mac_num, head_embedding_dim, params, NonLinear_Statistics, p_NonLinear_Statistics, J_max, J_min, MH_alg_distr_mode, MH_alg_level_mode)
             latency_acc1(seg_latency, Statistics, D)
             latency_acc1(seg_latency, MH_Statistics, D)
+            latency_acc1(seg_latency, round_Stats, 1)
             if debug_f:
                 seg_latency.dump_portion("SEG")
                 Statistics.latency.dump_portion("total")
@@ -1655,10 +1856,11 @@ def simulation(args, requests_pool, Statistics, FC_Statistics, MH_Statistics, No
             
             """ Softmax """
             seg_latency = softmax_latency(die_num, N, seq_len_table, die_idx_table if MH_alg_level_mode == 0 else core_idx_table, B, H, 
-                                            head_embedding_dim, mac_lane, params, MH_alg_level_mode, debug_on)
+                                            head_embedding_dim, mac_lane, params, MH_alg_level_mode)
             latency_acc1(seg_latency, Statistics, D)
             latency_acc1(seg_latency, NonLinear_Statistics, D)
             latency_acc1(seg_latency, p_NonLinear_Statistics[2], D)
+            latency_acc1(seg_latency, round_Stats, 1)
             if debug_f:
                 seg_latency.dump_portion("SEG")
                 Statistics.latency.dump_portion("total")
@@ -1670,6 +1872,7 @@ def simulation(args, requests_pool, Statistics, FC_Statistics, MH_Statistics, No
             latency_acc1(seg_latency, Statistics, D)
             latency_acc1(seg_latency, NonLinear_Statistics, D)
             latency_acc1(seg_latency, p_NonLinear_Statistics[3], D)
+            latency_acc1(seg_latency, round_Stats, 1)
             if debug_f:
                 seg_latency.dump_portion("SEG")
                 p_NonLinear_Statistics[3].latency.dump_portion("3")
@@ -1683,6 +1886,7 @@ def simulation(args, requests_pool, Statistics, FC_Statistics, MH_Statistics, No
             latency_acc1(seg_latency, FC_Statistics, D)
             latency_acc1(nonlinear_latency, NonLinear_Statistics, D)
             latency_substract(FC_Statistics, nonlinear_latency)
+            latency_acc1(seg_latency, round_Stats, 1)
             if debug_f:
                 seg_latency.dump_portion("SEG")
                 Statistics.latency.dump_portion("total")
@@ -1697,6 +1901,7 @@ def simulation(args, requests_pool, Statistics, FC_Statistics, MH_Statistics, No
             latency_acc1(seg_latency, Statistics, D)
             latency_acc1(seg_latency, NonLinear_Statistics, D)
             latency_acc1(seg_latency, p_NonLinear_Statistics[0], D)
+            latency_acc1(seg_latency, round_Stats, 1)
             if debug_f:
                 seg_latency.dump_portion("SEG")
                 Statistics.latency.dump_portion("total")
@@ -1712,6 +1917,7 @@ def simulation(args, requests_pool, Statistics, FC_Statistics, MH_Statistics, No
             latency_acc1(seg_latency, FC_Statistics, D)
             latency_acc1(nonlinear_latency, NonLinear_Statistics, D)
             latency_substract(FC_Statistics, nonlinear_latency)
+            latency_acc1(seg_latency, round_Stats, 1)
             if debug_f:
                 seg_latency.dump_portion("SEG")
                 Statistics.latency.dump_portion("total")
@@ -1730,6 +1936,7 @@ def simulation(args, requests_pool, Statistics, FC_Statistics, MH_Statistics, No
             latency_acc1(seg_latency, FC_Statistics, D)
             latency_acc1(nonlinear_latency, NonLinear_Statistics, D)
             latency_substract(FC_Statistics, nonlinear_latency)
+            latency_acc1(seg_latency, round_Stats, 1)
             if debug_f:
                 seg_latency.dump_portion("SEG")
                 Statistics.latency.dump_portion("total")
@@ -1742,12 +1949,17 @@ def simulation(args, requests_pool, Statistics, FC_Statistics, MH_Statistics, No
             """ at the end of each round, update dynamic weight """
             # length in sequence length table decides the dynamic memory, which has nothing to do with prefill stage or not
             tmp_dynamic_weight = 0
+            per_group_dynamic_weight = [0 for i in range(die_num if args.MH_alg_level_mode == 0 else N)]
             for i in range(B):
                 if (seq_len_table[i][3] == False) and (seq_len_table[i][4] == False):
                     # if this is a live job and is not recomputation
                     tmp_dynamic_weight += seq_len_table[i][2]
+                    per_group_dynamic_weight[die_idx_table[i] if args.MH_alg_level_mode == 0 else core_idx_table[i]] += seq_len_table[i][2]
             tmp_dynamic_weight = 2 * embedding_dim * D * tmp_dynamic_weight
+            for i in range(len(per_group_dynamic_weight)):
+                per_group_dynamic_weight[i] = 2 * embedding_dim * D * per_group_dynamic_weight[i]
             Statistics.peak_dynamic_mem = max(tmp_dynamic_weight, Statistics.peak_dynamic_mem)
+            Statistics.peak_dynamic_mem_per_group = max(max(per_group_dynamic_weight), Statistics.peak_dynamic_mem_per_group)
             
             debug_on = False
             flag1 = False
@@ -1794,11 +2006,13 @@ def simulation(args, requests_pool, Statistics, FC_Statistics, MH_Statistics, No
             #     break
             # if once:
             #     break
+            # round_Stats.latency.dump_portion(rounds)
             # for ii in range(B):
             #     if (seq_len_table[ii][3] == False) and (seq_len_table[ii][0] == False):
             #         group_jobs[die_idx_table[ii] if MH_alg_level_mode == 0 else core_idx_table[ii]] += 1
             # print(f"group_jobs after stopping: {group_jobs}")
-            
+        
+        print(f"s_total_avg: {s_sum_total / rounds / B}")   
         # print(f"IA_rows_sum: {IA_rows_sum}")
         # print(f"rounds: {rounds}")
         # print(f"mh_count: {mh_count}")
@@ -1936,7 +2150,7 @@ def simulation(args, requests_pool, Statistics, FC_Statistics, MH_Statistics, No
                 # if debug_on:
                 #     print("------------- FC3 -------------")
                 # seg_latency = stage_latency(die_num, N, 4 * embedding_dim, embedding_dim, mac_lane, mac_num, 1, sram2_height, IA_rows, debug_on)
-                (seg_latency, nonlinear_latency) = stage_latency(die_num, N, 4 * embedding_dim, embedding_dim, mac_lane, mac_num, W, sram2_height, IA_rows, p_NonLinear_Statistics, params, 2, True, False)
+                (seg_latency, nonlinear_latency) = stage_latency(die_num, N, 4 * embedding_dim, embedding_dim, mac_lane, mac_num, W, sram2_height, IA_rows, p_NonLinear_Statistics, params, 3, True, False)
                 latency_acc1(seg_latency, Statistics, D)
                 latency_acc1(seg_latency, FC_Statistics, D)
                 latency_acc1(nonlinear_latency, NonLinear_Statistics, D)
@@ -1950,7 +2164,7 @@ def simulation(args, requests_pool, Statistics, FC_Statistics, MH_Statistics, No
                 # if debug_on:
                 #     print("------------- FC4 -------------")
                 # seg_latency = stage_latency(die_num, N, embedding_dim, 4 * embedding_dim, mac_lane, mac_num, 1, sram2_height, IA_rows, debug_on)
-                (seg_latency, nonlinear_latency) = stage_latency(die_num, N, embedding_dim, 4 * embedding_dim, mac_lane, mac_num, W, sram2_height, IA_rows, p_NonLinear_Statistics, params, 2, False, True)
+                (seg_latency, nonlinear_latency) = stage_latency(die_num, N, embedding_dim, 4 * embedding_dim, mac_lane, mac_num, W, sram2_height, IA_rows, p_NonLinear_Statistics, params, 4, False, True)
                 latency_acc1(seg_latency, Statistics, D)
                 latency_acc1(seg_latency, FC_Statistics, D)
                 latency_acc1(nonlinear_latency, NonLinear_Statistics, D)
@@ -2022,8 +2236,9 @@ def main():
     Rotation_Statistics = Stats()  #5
     (total_latency, fc_latency, mh_latency, nonlinear_latency, nonlinear_latencys) = simulation(args, requests_pool, Statistics, FC_Statistics, MH_Statistics, NonLinear_Statistics,  
                                                                                                 [LN_Statistics, Split_Statistics, Softmax_Statistics, Concat_Statistics, Residual_Statistics, Rotation_Statistics])
-    dump_res(total_latency, fc_latency, mh_latency, nonlinear_latency, nonlinear_latencys, 
-                FC_Statistics, MH_Statistics, NonLinear_Statistics, [LN_Statistics, Split_Statistics, Softmax_Statistics, Concat_Statistics, Residual_Statistics, Rotation_Statistics], Statistics)
+    dump_res(total_latency, fc_latency, mh_latency, nonlinear_latency, nonlinear_latencys, FC_Statistics, MH_Statistics, NonLinear_Statistics, 
+             [LN_Statistics, Split_Statistics, Softmax_Statistics, Concat_Statistics, Residual_Statistics, Rotation_Statistics], 
+             Statistics, args.die_num if args.MH_alg_level_mode == 0 else args.core_num)
         
     return 0
     

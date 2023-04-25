@@ -1,0 +1,250 @@
+================================ Initial Start ===============================
+================ HW configs =================
++ die number: 4
++ core number in a die: 16
++ mac lane number: 16
++ mac num number: 32
++ sram2_height: 2048
+================ SW configs =================
++ embedding dimension: 12288
++ head number: 96
++ head_embedding dimension: 128
++ decoder block number: 96
+================ MH algorithm ===============
++ MH algorithm level mode: 0
++ MH distribution mode: 0
+================= Data set ==================
++ batch size: 256
++ request_total_count:2062
+---------- dump params -----------
+cal_latency: 64
+ppu_latency: 5
+ppu_boundary: 100
+weight/IA_loading_latency: 1
+NoC_core_bandwidth: 68
+NoP_die_bandwidth: 100
+ppu_bandwidth: 120
+NoC_latency_per_hop: 10
+NoP_latency_per_hop: 20
+NoC_h: 4
+NoC_w: 4
+NoP_h: 2
+NoP_w: 2
+is_ring_mode: False
+================================ Initial End ===============================
+B_list: [256, 256, 256, 256, 256, 256, 256, 256, 14]
+IA_rows_list: [560384, 326144, 145664, 224000, 169472, 136192, 527104, 527360, 6958]
+rounds: 9925
+mh_count: 2117212298
+done
+================================ Results ===============================
+------------ dump Total stats ------------
+---------- dump latencys -----------
+cal: 901671788740608
+weight_loading: 842976460800
+dynamic_weight_loading: 2467984665600
+IA_loading: 4031319666432
+ppu: 534977605943040
+NoC: 49369113280320
+NoP: 388191682944
+peak static memory usage: 173946175488.0
+peak dynamic memory usage: 1322111729664
+peak IA usage: 1811939328.0
+---------- dump Total latency counts -----------
+cal: 14088621699072
+ppu: 106995521188608
+weight_loading: 842976460800
+dynamic_weight_loading: 2467984665600
+IA_loading: 4031319666432
+NoC_latency: 49369113280320
+NoP_latency: 388191682944
+------------ dump FC stats ------------
+---------- dump latencys -----------
+cal: 891550250827776
+weight_loading: 842976460800
+dynamic_weight_loading: 0
+IA_loading: 4006632783480
+ppu: 534931490856960
+NoC: 49336259270106
+NoP: 322486107570
+peak static memory usage: 0
+peak dynamic memory usage: 0
+peak IA usage: 0
+---------- dump FC latency counts -----------
+cal: 13930472669184
+ppu: 106986298171392
+weight_loading: 842976460800
+dynamic_weight_loading: 0
+IA_loading: 4006632783480
+NoC_latency: 49336259270106
+NoP_latency: 322486107570
+------------ dump MH stats ------------
+---------- dump latencys -----------
+cal: 10121537912832
+weight_loading: 0
+dynamic_weight_loading: 2467984665600
+IA_loading: 9409471488
+ppu: 0
+NoC: 0
+NoP: 0
+peak static memory usage: 0
+peak dynamic memory usage: 0
+peak IA usage: 0
+---------- dump MH latency counts -----------
+cal: 158149029888
+ppu: 0
+weight_loading: 0
+dynamic_weight_loading: 2467984665600
+IA_loading: 9409471488
+NoC_latency: 0
+NoP_latency: 0
+------------ dump NonLinear stats ------------
+---------- dump latencys -----------
+cal: 0
+weight_loading: 0
+dynamic_weight_loading: 0
+IA_loading: 75506559024
+ppu: 46115086080
+NoC: 94930348704
+NoP: 388191682944
+peak static memory usage: 0
+peak dynamic memory usage: 0
+peak IA usage: 0
+---------- dump NonLinear latency counts -----------
+cal: 0
+ppu: 9223017216
+weight_loading: 0
+dynamic_weight_loading: 0
+IA_loading: 75506559024
+NoC_latency: 94930348704
+NoP_latency: 388191682944
+------------ dump Layer Norm stats ------------
+---------- dump latencys -----------
+cal: 0
+weight_loading: 0
+dynamic_weight_loading: 0
+IA_loading: 5575128576
+ppu: 22811550720
+NoC: 450372480
+NoP: 381518976
+peak static memory usage: 0
+peak dynamic memory usage: 0
+peak IA usage: 0
+---------- dump Layer Norm latency counts -----------
+cal: 0
+ppu: 4562310144
+weight_loading: 0
+dynamic_weight_loading: 0
+IA_loading: 5575128576
+NoC_latency: 450372480
+NoP_latency: 381518976
+------------ dump Split stats ------------
+---------- dump latencys -----------
+cal: 0
+weight_loading: 0
+dynamic_weight_loading: 0
+IA_loading: 6801254208
+ppu: 0
+NoC: 15292142304
+NoP: 46437321984
+peak static memory usage: 0
+peak dynamic memory usage: 0
+peak IA usage: 0
+---------- dump Split latency counts -----------
+cal: 0
+ppu: 0
+weight_loading: 0
+dynamic_weight_loading: 0
+IA_loading: 6801254208
+NoC_latency: 15292142304
+NoP_latency: 46437321984
+------------ dump Softmax stats ------------
+---------- dump latencys -----------
+cal: 0
+weight_loading: 0
+dynamic_weight_loading: 0
+IA_loading: 4472880
+ppu: 23303535360
+NoC: 11336855040
+NoP: 0
+peak static memory usage: 0
+peak dynamic memory usage: 0
+peak IA usage: 0
+---------- dump Softmax latency counts -----------
+cal: 0
+ppu: 4660707072
+weight_loading: 0
+dynamic_weight_loading: 0
+IA_loading: 4472880
+NoC_latency: 11336855040
+NoP_latency: 0
+------------ dump Concat stats ------------
+---------- dump latencys -----------
+cal: 0
+weight_loading: 0
+dynamic_weight_loading: 0
+IA_loading: 2267084736
+ppu: 0
+NoC: 5121205248
+NoP: 15492143808
+peak static memory usage: 0
+peak dynamic memory usage: 0
+peak IA usage: 0
+---------- dump Concat latency counts -----------
+cal: 0
+ppu: 0
+weight_loading: 0
+dynamic_weight_loading: 0
+IA_loading: 2267084736
+NoC_latency: 5121205248
+NoP_latency: 15492143808
+------------ dump Residual stats ------------
+---------- dump latencys -----------
+cal: 0
+weight_loading: 0
+dynamic_weight_loading: 0
+IA_loading: 31490688
+ppu: 0
+NoC: 0
+NoP: 0
+peak static memory usage: 0
+peak dynamic memory usage: 0
+peak IA usage: 0
+---------- dump Residual latency counts -----------
+cal: 0
+ppu: 0
+weight_loading: 0
+dynamic_weight_loading: 0
+IA_loading: 31490688
+NoC_latency: 0
+NoP_latency: 0
+------------ dump IA Rotation stats ------------
+---------- dump latencys -----------
+cal: 0
+weight_loading: 0
+dynamic_weight_loading: 0
+IA_loading: 602453256
+ppu: 0
+NoC: 653435142
+NoP: 3394590606
+peak static memory usage: 0
+peak dynamic memory usage: 0
+peak IA usage: 0
+---------- dump IA Rotation latency counts -----------
+cal: 0
+ppu: 0
+weight_loading: 0
+dynamic_weight_loading: 0
+IA_loading: 602453256
+NoC_latency: 653435142
+NoP_latency: 3394590606
++ total latency: 958771374496704
++ fc latency: 946058605449732
++ mh latency: 12598932049920
++ nonlinear latency: 558628590672
++ ln latency: 6407020032
++ split latency: 68530718496
++ softmax latency: 11341327920
++ concat latency: 22880433792
++ residual latency: 31490688
++ IA rotation latency: 4650479004
