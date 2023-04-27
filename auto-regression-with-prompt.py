@@ -10,6 +10,9 @@ from utils import latency
 TODO
 2. maybe there are better algorithm for prefill stage distribution and prefill & generation stage distribution, for now they all use the same simple algorithm
 8. handle to overlapped of loading and writing IA between different stages(this problem is almost done, but not complete)
+9. NoC/NoP transaction, one to all, how to calculate number of transactions, currently count only once
+10. for IA rotation and other rotation, maybe load and store is not neccessary, routing is the only overhead(is this true for split & concat? check this)
+11. complete output stationary for other layers(but a rough estimation indicates that os is worse than ws, unless transferring overhead is dominate)
 """
 
 """ 
@@ -19,7 +22,7 @@ NOTE
 3. core-level and die-level distribution, the latency difference lies in whether concat is needed
 4. the direct reuse between split and MH1 is hard to quantifiy, therefore we ignore this
 """
-debug_f = False
+debug_f = True
 
 def argparser():
     """ Argument parser. """
@@ -27,7 +30,7 @@ def argparser():
     ap = argparse.ArgumentParser()
 
     # HW
-    ap.add_argument('--die-num', type = int, default = 100,
+    ap.add_argument('--die-num', type = int, default = 4,
                     help = 'number of dies in the system')
     ap.add_argument('--core-num-in-die', type = int, default = 16,     
                     help = 'number of cores in a die')
@@ -39,6 +42,11 @@ def argparser():
     # MAPPING
     ap.add_argument('--W', type = int, default = 1,
                     help = 'parameter when calculating FC layer, for every core, determine the width of dot production, width = mac_num * W')
+    # psum_mode only works with partition mode 0
+    ap.add_argument('--psum-mode', type = int, default = 1,
+                    help = 'choose partial sum number of partition, 0 for user-define, 1 for largest')
+    ap.add_argument('--partition-mode', type = int, default = 1,
+                    help = 'choose partition mode for FC calculation, 0 for weight-stationary, 1 for output-stationary')
     
     # MODEL
     ap.add_argument('--batch-size', type = int, default = 256,
@@ -61,7 +69,7 @@ def argparser():
 
     # PARAM
     # TODO check this 0.039~0.455
-    ap.add_argument('--cal-latency', type = int, default = 0.039,
+    ap.add_argument('--cal-latency', type = int, default = 0.455,
                     help = 'latency of calculating a mac_num dot production(8bit)')
     ap.add_argument('--ppu-latency', type = int, default = 5,
                     help = 'latency of a PPU operation with data amount boundary')
@@ -84,9 +92,9 @@ def argparser():
                     help = 'number of cores within a die in y axis')
     ap.add_argument('--NoC-w', type = int, default = 4,
                     help = 'number of cores within a die in x axis')
-    ap.add_argument('--NoP-h', type = int, default = 10,
+    ap.add_argument('--NoP-h', type = int, default = 2,
                     help = 'number of dies in y axis')
-    ap.add_argument('--NoP-w', type = int, default = 10,
+    ap.add_argument('--NoP-w', type = int, default = 2,
                     help = 'number of dies in x axis')
     ap.add_argument('--is-ring-mode', type = int, default = False,
                     help = 'whether die is of ring topology')
@@ -179,6 +187,7 @@ def latency_acc1(stage_latency, Statistics, D):
         
     Statistics.latency.NoC_transactions += stage_latency.NoC_transactions * D
     Statistics.latency.NoC_transactions_FC_partialsum += stage_latency.NoC_transactions_FC_partialsum * D
+    Statistics.latency.NoC_transactions_FC_weight += stage_latency.NoC_transactions_FC_weight * D
     Statistics.latency.NoC_transactions_IA_rotation += stage_latency.NoC_transactions_IA_rotation * D
     Statistics.latency.NoC_transactions_LN += stage_latency.NoC_transactions_LN * D
     Statistics.latency.NoC_transactions_split_concat += stage_latency.NoC_transactions_split_concat * D
@@ -223,6 +232,7 @@ def latency_substract(FC_Statistics, nonlinear_latency):
     
     FC_Statistics.latency.NoC_transactions -= nonlinear_latency.NoC_transactions
     FC_Statistics.latency.NoC_transactions_FC_partialsum -= nonlinear_latency.NoC_transactions_FC_partialsum
+    FC_Statistics.latency.NoC_transactions_FC_weight -= nonlinear_latency.NoC_transactions_FC_weight
     FC_Statistics.latency.NoC_transactions_IA_rotation -= nonlinear_latency.NoC_transactions_IA_rotation
     FC_Statistics.latency.NoC_transactions_LN -= nonlinear_latency.NoC_transactions_LN
     FC_Statistics.latency.NoC_transactions_split_concat -= nonlinear_latency.NoC_transactions_split_concat 
@@ -269,6 +279,7 @@ def latency_acc2(stage_latency, latencys):
         
     new_latencys.NoC_transactions = latencys.NoC_transactions + stage_latency.NoC_transactions
     new_latencys.NoC_transactions_FC_partialsum = latencys.NoC_transactions_FC_partialsum + stage_latency.NoC_transactions_FC_partialsum
+    new_latencys.NoC_transactions_FC_weight = latencys.NoC_transactions_FC_weight + stage_latency.NoC_transactions_FC_weight
     new_latencys.NoC_transactions_IA_rotation = latencys.NoC_transactions_IA_rotation + stage_latency.NoC_transactions_IA_rotation
     new_latencys.NoC_transactions_LN = latencys.NoC_transactions_LN + stage_latency.NoC_transactions_LN
     new_latencys.NoC_transactions_split_concat = latencys.NoC_transactions_split_concat + stage_latency.NoC_transactions_split_concat 
@@ -309,7 +320,7 @@ def calculate_weights_col_assignment(seg_num, weights_maclane_col_per_segment, m
             break
     return (weights_col_per_segment_list, weights_col_per_segment_max)
     
-def stage_latency(die_num, core_num, weight_cols, weight_rows, mac_lane, mac_num, psum_num, sram2_height, IA_rows, p_NonLinear_Statistics, params, FC_no, is_LN_before=False, is_residual_after=False, debug_on=False):
+def stage_latency(die_num, core_num, weight_cols, weight_rows, mac_lane, mac_num, psum_num, sram2_height, IA_rows, p_NonLinear_Statistics, params, FC_no, partition_mode, is_LN_before=False, is_residual_after=False, debug_on=False):
     """ 
     psum_num: how many mac_num cols are there in one calculation block
     weight_loading_latency: for a mac_numB data
@@ -326,268 +337,397 @@ def stage_latency(die_num, core_num, weight_cols, weight_rows, mac_lane, mac_num
     nonlinear_latencys = latency()
     nonlinear_latencys.get_params(params)
     
-    if debug_f:
-        print(f"---------- FC {FC_no} start ------------")
-        print(f"is_LN_before: {is_LN_before}")
-    
-    """ calculate IA partition in case of IA rotation """
-    # number of IA_rows * mac_num * psum_num sub-matrix of IA
-    big_col_num = math.ceil(weight_rows / mac_num / psum_num)
-    IA_big_col_per_die = math.ceil(big_col_num / die_num)
-    IA_core_big_col_per_die = math.ceil(IA_big_col_per_die / core_num)
-    # every element in the list can be divided by core number
-    IA_big_col_per_die_list = [0] * die_num
-    (IA_big_col_per_die_list, _) = calculate_weights_col_assignment(die_num, IA_core_big_col_per_die, core_num, big_col_num)
-    # record 
-    IA_rounds_per_die_list = []
-    if debug_f:
-        print(f"IA_big_col_per_die_list: {IA_big_col_per_die_list}")
-    
-    for e in IA_big_col_per_die_list:
-        IA_rounds_per_die_list.append(math.ceil(e / core_num))
-    if debug_f:
-        print(f"IA_rounds_per_die_list: {IA_rounds_per_die_list}")        
-    
-    """ calculate the maximum weight columns assigned to die """
-    weights_col_per_die = math.ceil(weight_cols / die_num) 
-    weights_maclane_col_per_die = math.ceil(weights_col_per_die / mac_lane)
-    weights_col_per_die_list = [0] * die_num
-    weights_col_per_die_max = 0
-    (weights_col_per_die_list, weights_col_per_die_max) = calculate_weights_col_assignment(die_num, weights_maclane_col_per_die, mac_lane, weight_cols)
-    if debug_f: 
-        print(f"weights_col_per_die_list: {weights_col_per_die_list}")
-    
-    # if debug_on:
-    #     print(f"FC stage, weights_col_per_die_list: {weights_col_per_die_list}")
-
-    """ calcualte how many rounds of calculation should a die goes through for weight """
-    # Die with the maximum amount of weights dominates the latency
-    # number of rounds to complete using weigths in col-dim
-    rounds_weight = math.ceil(weights_col_per_die_max / (sram2_height / psum_num))
-    weights_col_per_round = math.ceil(weights_col_per_die_max / rounds_weight)
-    weights_maclane_col_per_round = math.ceil(weights_col_per_round / mac_lane)
-    weights_col_per_round_list = [0] * rounds_weight
-    weights_col_per_round_max = 0
-    (weights_col_per_round_list, weights_col_per_round_max) = calculate_weights_col_assignment(rounds_weight, weights_maclane_col_per_round, mac_lane, weights_col_per_die_max)
-    if debug_f:
-        print(f"weights_col_per_round_list: {weights_col_per_round_list}")
-    
-    # if debug_on:
-    #     print(f"FC stage, weights_col_per_round_list: {weights_col_per_round_list}")    
+    if partition_mode == 0:
+        """ weight stationary """
+        if debug_f:
+            print(f"---------- FC {FC_no} start ------------")
+            print(f"is_LN_before: {is_LN_before}")
         
-    """ calcualte how many rounds of calculation should a die goes through for IA """
-    # number of rounds to complete using IA in row-dim
-    rounds_IA = math.ceil(IA_rows / (sram2_height / psum_num))
-    IA_rows_per_round = math.ceil(IA_rows / rounds_IA)
-    IA_maclane_row_per_round = math.ceil(IA_rows_per_round / mac_lane)
-    IA_rows_per_round_list = [0] * rounds_IA
-    IA_rows_per_round_max = 0
-    (IA_rows_per_round_list, IA_rows_per_round_max) = calculate_weights_col_assignment(rounds_IA, IA_maclane_row_per_round, mac_lane, IA_rows)
-    if debug_f:
-        print(f"IA_rows_per_round_list: {IA_rows_per_round_list}")
-    
-    # if debug_on:
-    #     print(f"FC stage, IA_rows_per_round_list: {IA_rows_per_round_list}")    
-    
-    # FIXME Dummy implementation. We should consider corner cases under special circumstances
-    sub_rounds = math.ceil(math.ceil(weight_rows / (mac_num * psum_num)) / core_num)              
-    
-    if debug_f:
-        print(f"rounds_weight: {rounds_weight}, rounds_IA: {rounds_IA}, sub_rounds: {sub_rounds}")
-    
-    """ calculation with rotation """
-    # record which partition of IA in the first die is now processing
-    # NOTE: weight loading and IA loading cannot hide each other since they all come from the same CH
-    partition_idx = 0
-    tmp = 0
-    calculation_print = True
-    # operand
-    IA_loading1 = 0
-    # partial sum loading
-    IA_loading2 = 0
-    # total write back
-    IA_loading3 = 0
-    # rotation loading
-    IA_loading4 = 0
-    # rotation write back
-    IA_loading5 = 0
-    
-    for i in IA_rounds_per_die_list:
-        for j in range(rounds_weight):
-            for k in range(i):
-                
-                # if weights_col_per_round_list[j] >= IA_rows_per_round_list[0]:
-                    # weight loading latency hides IA loading latency
-                    
-                # every sub round means a new weight loading
-                latencys.weight_loading += weights_col_per_round_list[j] * psum_num
-                
-                # else:
-                    # IA loading latency hides weight loading latency
-                    # if (partition_idx > 0) and (k == 0):
-                        # since rotation will transfer data from other die onto the logic die, first subround of IA 
-                        # latencys.weight_loading += weights_col_per_round_list[j] * psum_num
-                    # else:
-                        # latencys.IA_loading += IA_rows_per_round_list[0] * psum_num
-                    
-                for l in range(rounds_IA):
-                    # loading IA, but do not need to load weights
-                    latencys.IA_loading += IA_rows_per_round_list[l] * psum_num
-                    latencys.IA_loading_FC_operand += IA_rows_per_round_list[l] * psum_num
-                    IA_loading1 += IA_rows_per_round_list[l] * psum_num
-                    
-                    # there are sevral cases IA loading is not needed
-                    # 1. very first round, thanks to LN
-                    if (l == 0) and (k == 0) and (j == 0) and (partition_idx == 0) and is_LN_before:
-                        latencys.IA_loading -= IA_rows_per_round_list[l] * psum_num
-                        latencys.IA_loading_FC_operand -= IA_rows_per_round_list[l] * psum_num
-                        IA_loading1 -= IA_rows_per_round_list[l] * psum_num
-                    # 2. very first round of a partition, thanks to rotation
-                    elif (partition_idx > 0) and (l == 0) and (k == 0) and (j == 0):
-                        latencys.IA_loading -= IA_rows_per_round_list[l] * psum_num
-                        latencys.IA_loading_FC_operand -= IA_rows_per_round_list[l] * psum_num
-                        IA_loading1 -= IA_rows_per_round_list[l] * psum_num
-                    
-                    # if ((k > 0) or (partition_idx == 0)):
-                        
-                    # calculate
-                    # number of mac-lane col in a calculation block
-                    maclane_col_num = math.ceil(weights_col_per_round_list[j] / mac_lane)
-                    # number of mac-lane row in a calculation block
-                    maclane_row_num = math.ceil(IA_rows_per_round_list[l] / mac_lane)
-                    
-                    latencys.cal += maclane_col_num * maclane_row_num * mac_lane * psum_num
-                    # latencys.psum_cube_cal += (psum_num - 1) * maclane_col_num * maclane_row_num 
-                    
-                    n = 0
-                    if k > 0 or partition_idx > 0:
-                        # if this is not the first sub-round, we should get partial sum from previous sub-rounds and add to partial sum of this sub-round
-                        # NOTE: partial sum comes from all HMCs
-                        latencys.IA_loading += math.ceil(3 * maclane_col_num * maclane_row_num * math.pow(mac_lane, 2) / mac_num / core_num)
-                        latencys.IA_loading_FC_partialsum += math.ceil(3 * maclane_col_num * maclane_row_num * math.pow(mac_lane, 2) / mac_num / core_num)
-                        IA_loading2 += math.ceil(3 * maclane_col_num * maclane_row_num * math.pow(mac_lane, 2) / mac_num / core_num)
-                        n += 1
-                    if (partition_idx == (len(IA_rounds_per_die_list) - 1)) and (k == (i - 1)) and is_residual_after:
-                        # if this is the last sub-round and there's a residual connection afterwards
-                        latencys.IA_loading += math.ceil(maclane_col_num * maclane_row_num * math.pow(mac_lane, 2) / mac_num / core_num)
-                        latencys.IA_loading_residual += math.ceil(maclane_col_num * maclane_row_num * math.pow(mac_lane, 2) / mac_num / core_num)
-                        p_NonLinear_Statistics[4].latency.IA_loading += math.ceil(maclane_col_num * maclane_row_num * math.pow(mac_lane, 2) / mac_num / core_num)
-                        p_NonLinear_Statistics[4].latency.IA_loading_residual += math.ceil(maclane_col_num * maclane_row_num * math.pow(mac_lane, 2) / mac_num / core_num)
-                        nonlinear_latencys.IA_loading += math.ceil(maclane_col_num * maclane_row_num * math.pow(mac_lane, 2) / mac_num / core_num)
-                        nonlinear_latencys.IA_loading_residual += math.ceil(maclane_col_num * maclane_row_num * math.pow(mac_lane, 2) / mac_num / core_num)
-                        tmp += math.ceil(maclane_col_num * maclane_row_num * math.pow(mac_lane, 2) / mac_num / core_num)
-                        n += 1
-                        
-                    # add N/(N+1)/N+2 cubes together
-                    # route to PPU
-                    # latencys.add_NoC_cores_to_ppu(3 * maclane_col_num * maclane_row_num * math.pow(mac_lane, 2), "FC_partialsum")
-                    latencys.NoC_transactions += (core_num + n) * 3 * maclane_col_num * maclane_row_num * math.pow(mac_lane, 2)
-                    latencys.NoC_transactions_FC_partialsum += (core_num + n) * 3 * maclane_col_num * maclane_row_num * math.pow(mac_lane, 2)
-                    
-                    # calculate
-                    latencys.add_ppu_count(3 * maclane_col_num * maclane_row_num * math.pow(mac_lane, 2) * core_num)
-                    
-                    # route to cores
-                    # latencys.add_NoC_ppu_to_core(3 * maclane_col_num * maclane_row_num * math.pow(mac_lane, 2), "FC_partialsum")
-                    if (partition_idx == (len(IA_rounds_per_die_list) - 1)) and (k == (i - 1)):
-                        # if last round, complete sum
-                        latencys.NoC_transactions += maclane_col_num * maclane_row_num * math.pow(mac_lane, 2)
-                        latencys.NoC_transactions_FC_partialsum += maclane_col_num * maclane_row_num * math.pow(mac_lane, 2)
-                    else: 
-                        # not last round, route back partial sum
-                        latencys.NoC_transactions += 3 * maclane_col_num * maclane_row_num * math.pow(mac_lane, 2)
-                        latencys.NoC_transactions_FC_partialsum += 3 * maclane_col_num * maclane_row_num * math.pow(mac_lane, 2)
-                    
-                    # write mac-lane * mac-lane block back into HMC
-                    # write back partial sum or complete sum
-                    latencys.IA_loading += (1 if (partition_idx == (len(IA_rounds_per_die_list) - 1)) and (k == (i - 1)) else 3) * maclane_col_num * maclane_row_num * math.ceil(math.pow(mac_lane, 2) / mac_num / core_num)
-                    latencys.IA_loading_FC_wb += (1 if (partition_idx == (len(IA_rounds_per_die_list) - 1)) and (k == (i - 1)) else 3) * maclane_col_num * maclane_row_num * math.ceil(math.pow(mac_lane, 2) / mac_num / core_num)
-                    IA_loading3 += (1 if (partition_idx == (len(IA_rounds_per_die_list) - 1)) and (k == (i - 1)) else 3) * maclane_col_num * maclane_row_num * math.ceil(math.pow(mac_lane, 2) / mac_num / core_num)
+        """ calculate IA partition in case of IA rotation """
+        # number of IA_rows * mac_num * psum_num sub-matrix of IA
+        big_col_num = math.ceil(weight_rows / mac_num / psum_num)
+        IA_big_col_per_die = math.ceil(big_col_num / die_num)
+        IA_core_big_col_per_die = math.ceil(IA_big_col_per_die / core_num)
+        # every element in the list can be divided by core number
+        IA_big_col_per_die_list = [0] * die_num
+        (IA_big_col_per_die_list, _) = calculate_weights_col_assignment(die_num, IA_core_big_col_per_die, core_num, big_col_num)
+        # record 
+        IA_rounds_per_die_list = []
+        if debug_f:
+            print(f"IA_big_col_per_die_list: {IA_big_col_per_die_list}")
+        
+        for e in IA_big_col_per_die_list:
+            IA_rounds_per_die_list.append(math.ceil(e / core_num))
+        if debug_f:
+            print(f"IA_rounds_per_die_list: {IA_rounds_per_die_list}")        
+        
+        """ calculate the maximum weight columns assigned to die """
+        weights_col_per_die = math.ceil(weight_cols / die_num) 
+        weights_maclane_col_per_die = math.ceil(weights_col_per_die / mac_lane)
+        weights_col_per_die_list = [0] * die_num
+        weights_col_per_die_max = 0
+        (weights_col_per_die_list, weights_col_per_die_max) = calculate_weights_col_assignment(die_num, weights_maclane_col_per_die, mac_lane, weight_cols)
+        if debug_f: 
+            print(f"weights_col_per_die_list: {weights_col_per_die_list}")
+        
+        # if debug_on:
+        #     print(f"FC stage, weights_col_per_die_list: {weights_col_per_die_list}")
 
-                    if calculation_print and debug_f:
-                        print(f"(maclane_row_num, maclane_col_num): ({maclane_row_num}, {maclane_col_num})")
-                        calculation_print = False
-        # a partition of IA finishes calculating, we need to rotate partitions among dies
-        # step1: read all the partition data from HMC to logic die
-        # step2: transfer to other die's logic die
-        # step3: write all the partition data from logic die to HMC
-        # NOTE: first sub-round of a partition moves to calculation immediately without writing into HMC first     
-        #       IA loading has a core_num parallelism
-        #       we rotate IA, not results!
-        # FIXME: here we use the first die's latency to represent the total latency, however, there exists case that the first die is not the die with the longest processing latency 
-        if partition_idx + 1 < len(IA_rounds_per_die_list):          
-            # last subround is already in SRAM, no loading
-            latencys.IA_loading += max(math.ceil(IA_big_col_per_die_list[partition_idx] * psum_num * IA_rows / core_num) - psum_num * IA_rows_per_round_list[-1], 0)
-            latencys.IA_loading_IA_rotation += max(math.ceil(IA_big_col_per_die_list[partition_idx] * psum_num * IA_rows / core_num) - psum_num * IA_rows_per_round_list[-1], 0)
-            p_NonLinear_Statistics[5].latency.IA_loading += max(math.ceil(IA_big_col_per_die_list[partition_idx] * psum_num * IA_rows / core_num) - psum_num * IA_rows_per_round_list[-1], 0)
-            p_NonLinear_Statistics[5].latency.IA_loading_IA_rotation += max(math.ceil(IA_big_col_per_die_list[partition_idx] * psum_num * IA_rows / core_num) - psum_num * IA_rows_per_round_list[-1], 0)
-            nonlinear_latencys.IA_loading += max(math.ceil(IA_big_col_per_die_list[partition_idx] * psum_num * IA_rows / core_num) - psum_num * IA_rows_per_round_list[-1], 0)
-            nonlinear_latencys.IA_loading_IA_rotation += max(math.ceil(IA_big_col_per_die_list[partition_idx] * psum_num * IA_rows / core_num) - psum_num * IA_rows_per_round_list[-1], 0)
-            IA_loading4 += max(math.ceil(IA_big_col_per_die_list[partition_idx] * psum_num * IA_rows / core_num) - psum_num * IA_rows_per_round_list[-1], 0)
+        """ calcualte how many rounds of calculation should a die goes through for weight """
+        # Die with the maximum amount of weights dominates the latency
+        # number of rounds to complete using weigths in col-dim
+        rounds_weight = math.ceil(weights_col_per_die_max / (sram2_height / psum_num))
+        weights_col_per_round = math.ceil(weights_col_per_die_max / rounds_weight)
+        weights_maclane_col_per_round = math.ceil(weights_col_per_round / mac_lane)
+        weights_col_per_round_list = [0] * rounds_weight
+        weights_col_per_round_max = 0
+        (weights_col_per_round_list, weights_col_per_round_max) = calculate_weights_col_assignment(rounds_weight, weights_maclane_col_per_round, mac_lane, weights_col_per_die_max)
+        if debug_f:
+            print(f"weights_col_per_round_list: {weights_col_per_round_list}")
+        
+        # if debug_on:
+        #     print(f"FC stage, weights_col_per_round_list: {weights_col_per_round_list}")    
             
-            # sending & receriving
-            # latencys.add_NoC_cores_to_ppu(IA_big_col_per_die_list[partition_idx] * psum_num * IA_rows * mac_num / core_num, "IA_rotation")
-            latencys.NoC_transactions += max(IA_big_col_per_die_list) * psum_num * IA_rows * mac_num
-            latencys.NoC_transactions_IA_rotation += max(IA_big_col_per_die_list) * psum_num * IA_rows * mac_num
-            # latencys.add_NoP_rotation(IA_big_col_per_die_list[partition_idx] * psum_num * IA_rows * mac_num)  
-            latencys.NoP_transactions += weight_rows * IA_rows
-            latencys.NoP_transactions_IA_rotation += weight_rows * IA_rows
-            # latencys.add_NoC_ppu_to_cores_m(IA_big_col_per_die_list[partition_idx + 1] * psum_num * IA_rows * mac_num / core_num, "IA_rotation")
-            latencys.NoC_transactions += max(IA_big_col_per_die_list) * psum_num * IA_rows * mac_num
-            latencys.NoC_transactions_IA_rotation += max(IA_big_col_per_die_list) * psum_num * IA_rows * mac_num
-            
-            # p_NonLinear_Statistics[5].latency.add_NoC_cores_to_ppu(IA_big_col_per_die_list[partition_idx] * psum_num * IA_rows * mac_num / core_num, "IA_rotation")
-            p_NonLinear_Statistics[5].latency.NoC_transactions += max(IA_big_col_per_die_list) * psum_num * IA_rows * mac_num
-            p_NonLinear_Statistics[5].latency.NoC_transactions_IA_rotation += max(IA_big_col_per_die_list) * psum_num * IA_rows * mac_num
-            # p_NonLinear_Statistics[5].latency.add_NoP_rotation(IA_big_col_per_die_list[partition_idx] * psum_num * IA_rows * mac_num)  
-            p_NonLinear_Statistics[5].latency.NoP_transactions += weight_rows * IA_rows
-            p_NonLinear_Statistics[5].latency.NoP_transactions_IA_rotation += weight_rows * IA_rows
-            # p_NonLinear_Statistics[5].latency.add_NoC_ppu_to_cores_m(IA_big_col_per_die_list[partition_idx + 1] * psum_num * IA_rows / core_num, "IA_rotation")
-            p_NonLinear_Statistics[5].latency.NoC_transactions += max(IA_big_col_per_die_list) * psum_num * IA_rows * mac_num
-            p_NonLinear_Statistics[5].latency.NoC_transactions_IA_rotation += max(IA_big_col_per_die_list) * psum_num * IA_rows * mac_num
-            
-            # nonlinear_latencys.add_NoC_cores_to_ppu(IA_big_col_per_die_list[partition_idx] * psum_num * IA_rows * mac_num / core_num, "IA_rotation")
-            nonlinear_latencys.NoC_transactions += max(IA_big_col_per_die_list) * psum_num * IA_rows * mac_num
-            nonlinear_latencys.NoC_transactions_IA_rotation += max(IA_big_col_per_die_list) * psum_num * IA_rows * mac_num
-            # nonlinear_latencys.add_NoP_rotation(IA_big_col_per_die_list[partition_idx] * psum_num * IA_rows * mac_num)  
-            nonlinear_latencys.NoP_transactions += weight_rows * IA_rows
-            nonlinear_latencys.NoP_transactions_IA_rotation += weight_rows * IA_rows
-            # nonlinear_latencys.add_NoC_ppu_to_cores_m(IA_big_col_per_die_list[partition_idx + 1] * psum_num * IA_rows / core_num, "IA_rotation")
-            nonlinear_latencys.NoC_transactions += max(IA_big_col_per_die_list) * psum_num * IA_rows * mac_num
-            nonlinear_latencys.NoC_transactions_IA_rotation += max(IA_big_col_per_die_list) * psum_num * IA_rows * mac_num
-            
-            # the first sub-round's data don't need to store 
-            latencys.IA_loading += max(math.ceil(IA_big_col_per_die_list[partition_idx + 1] * psum_num * IA_rows / core_num) - psum_num * IA_rows_per_round_list[0], 0)
-            latencys.IA_loading_IA_rotation_wb += max(math.ceil(IA_big_col_per_die_list[partition_idx + 1] * psum_num * IA_rows / core_num) - psum_num * IA_rows_per_round_list[0], 0)
-            p_NonLinear_Statistics[5].latency.IA_loading += max(math.ceil(IA_big_col_per_die_list[partition_idx + 1] * psum_num * IA_rows / core_num) - psum_num * IA_rows_per_round_list[0], 0)
-            p_NonLinear_Statistics[5].latency.IA_loading_IA_rotation_wb += max(math.ceil(IA_big_col_per_die_list[partition_idx + 1] * psum_num * IA_rows / core_num) - psum_num * IA_rows_per_round_list[0], 0)
-            nonlinear_latencys.IA_loading += max(math.ceil(IA_big_col_per_die_list[partition_idx + 1] * psum_num * IA_rows / core_num) - psum_num * IA_rows_per_round_list[0], 0)
-            nonlinear_latencys.IA_loading_IA_rotation_wb += max(math.ceil(IA_big_col_per_die_list[partition_idx + 1] * psum_num * IA_rows / core_num) - psum_num * IA_rows_per_round_list[0], 0)
-            IA_loading5 += max(math.ceil(IA_big_col_per_die_list[partition_idx + 1] * psum_num * IA_rows / core_num) - psum_num * IA_rows_per_round_list[0], 0)
-            
-            if debug_on:
-                print("---------------------- FC partition start --------------------")
-                print(f"IA_rounds_per_die_list: {IA_rounds_per_die_list}")
-                print(f"IA_big_col_per_die_list: {IA_big_col_per_die_list}")
-                print(f"partition_idx: {partition_idx}")
-                print(f"IA_loading: {IA_big_col_per_die_list[partition_idx + 1] * psum_num * IA_rows}")
-                print(f"NoP_8: {IA_big_col_per_die_list[partition_idx] * psum_num * IA_rows + IA_big_col_per_die_list[partition_idx + 1] * psum_num * IA_rows}")
-                print(f"IA_writing: {max(IA_big_col_per_die_list[partition_idx + 1] * psum_num * IA_rows - core_num * psum_num * IA_rows, 0)}")
-                print("---------------------- FC partition end --------------------")
-                               
-            partition_idx += 1 
-            
-    if debug_f: 
-        print(f"IA_loading1: {IA_loading1}")
-        print(f"IA_loading2: {IA_loading2}")
-        print(f"IA_loading3: {IA_loading3}")
-        print(f"IA_loading4: {IA_loading4}")
-        print(f"IA_loading5: {IA_loading5}")
-        print("------------- Residual Connections start -----------")             
-        print(f"Residual IA loading: {tmp}")
-        print("------------- Residual Connections end -------------")             
+        """ calcualte how many rounds of calculation should a die goes through for IA """
+        # number of rounds to complete using IA in row-dim
+        rounds_IA = math.ceil(IA_rows / (sram2_height / psum_num))
+        IA_rows_per_round = math.ceil(IA_rows / rounds_IA)
+        IA_maclane_row_per_round = math.ceil(IA_rows_per_round / mac_lane)
+        IA_rows_per_round_list = [0] * rounds_IA
+        IA_rows_per_round_max = 0
+        (IA_rows_per_round_list, IA_rows_per_round_max) = calculate_weights_col_assignment(rounds_IA, IA_maclane_row_per_round, mac_lane, IA_rows)
+        if debug_f:
+            print(f"IA_rows_per_round_list: {IA_rows_per_round_list}")
+        
+        # if debug_on:
+        #     print(f"FC stage, IA_rows_per_round_list: {IA_rows_per_round_list}")    
+        
+        # FIXME Dummy implementation. We should consider corner cases under special circumstances
+        sub_rounds = math.ceil(math.ceil(weight_rows / (mac_num * psum_num)) / core_num)              
+        
+        if debug_f:
+            print(f"rounds_weight: {rounds_weight}, rounds_IA: {rounds_IA}, sub_rounds: {sub_rounds}")
+        
+        """ calculation with rotation """
+        # record which partition of IA in the first die is now processing
+        # NOTE: weight loading and IA loading cannot hide each other since they all come from the same CH
+        partition_idx = 0
+        tmp = 0
+        calculation_print = True
+        # operand
+        IA_loading1 = 0
+        # partial sum loading
+        IA_loading2 = 0
+        # total write back
+        IA_loading3 = 0
+        # rotation loading
+        IA_loading4 = 0
+        # rotation write back
+        IA_loading5 = 0
+        
+        for i in IA_rounds_per_die_list:
+            for j in range(rounds_weight):
+                for k in range(i):
+                    
+                    # if weights_col_per_round_list[j] >= IA_rows_per_round_list[0]:
+                        # weight loading latency hides IA loading latency
+                        
+                    # every sub round means a new weight loading
+                    latencys.weight_loading += weights_col_per_round_list[j] * psum_num
+                    
+                    # else:
+                        # IA loading latency hides weight loading latency
+                        # if (partition_idx > 0) and (k == 0):
+                            # since rotation will transfer data from other die onto the logic die, first subround of IA 
+                            # latencys.weight_loading += weights_col_per_round_list[j] * psum_num
+                        # else:
+                            # latencys.IA_loading += IA_rows_per_round_list[0] * psum_num
+                        
+                    for l in range(rounds_IA):
+                        # loading IA, but do not need to load weights
+                        latencys.IA_loading += IA_rows_per_round_list[l] * psum_num
+                        latencys.IA_loading_FC_operand += IA_rows_per_round_list[l] * psum_num
+                        IA_loading1 += IA_rows_per_round_list[l] * psum_num
+                        
+                        # there are sevral cases IA loading is not needed
+                        # 1. very first round, thanks to LN
+                        if (l == 0) and (k == 0) and (j == 0) and (partition_idx == 0) and is_LN_before:
+                            latencys.IA_loading -= IA_rows_per_round_list[l] * psum_num
+                            latencys.IA_loading_FC_operand -= IA_rows_per_round_list[l] * psum_num
+                            IA_loading1 -= IA_rows_per_round_list[l] * psum_num
+                        # 2. very first round of a partition, thanks to rotation
+                        elif (partition_idx > 0) and (l == 0) and (k == 0) and (j == 0):
+                            latencys.IA_loading -= IA_rows_per_round_list[l] * psum_num
+                            latencys.IA_loading_FC_operand -= IA_rows_per_round_list[l] * psum_num
+                            IA_loading1 -= IA_rows_per_round_list[l] * psum_num
+                        
+                        # if ((k > 0) or (partition_idx == 0)):
+                            
+                        # calculate
+                        # number of mac-lane col in a calculation block
+                        maclane_col_num = math.ceil(weights_col_per_round_list[j] / mac_lane)
+                        # number of mac-lane row in a calculation block
+                        maclane_row_num = math.ceil(IA_rows_per_round_list[l] / mac_lane)
+                        
+                        latencys.cal += maclane_col_num * maclane_row_num * mac_lane * psum_num
+                        # latencys.psum_cube_cal += (psum_num - 1) * maclane_col_num * maclane_row_num 
+                        
+                        n = 0
+                        if k > 0 or partition_idx > 0:
+                            # if this is not the first sub-round, we should get partial sum from previous sub-rounds and add to partial sum of this sub-round
+                            # NOTE: partial sum comes from all HMCs
+                            latencys.IA_loading += math.ceil(3 * maclane_col_num * maclane_row_num * math.pow(mac_lane, 2) / mac_num / core_num)
+                            latencys.IA_loading_FC_partialsum += math.ceil(3 * maclane_col_num * maclane_row_num * math.pow(mac_lane, 2) / mac_num / core_num)
+                            IA_loading2 += math.ceil(3 * maclane_col_num * maclane_row_num * math.pow(mac_lane, 2) / mac_num / core_num)
+                            n += 1
+                        if (partition_idx == (len(IA_rounds_per_die_list) - 1)) and (k == (i - 1)) and is_residual_after:
+                            # if this is the last sub-round and there's a residual connection afterwards
+                            latencys.IA_loading += math.ceil(maclane_col_num * maclane_row_num * math.pow(mac_lane, 2) / mac_num / core_num)
+                            latencys.IA_loading_residual += math.ceil(maclane_col_num * maclane_row_num * math.pow(mac_lane, 2) / mac_num / core_num)
+                            p_NonLinear_Statistics[4].latency.IA_loading += math.ceil(maclane_col_num * maclane_row_num * math.pow(mac_lane, 2) / mac_num / core_num)
+                            p_NonLinear_Statistics[4].latency.IA_loading_residual += math.ceil(maclane_col_num * maclane_row_num * math.pow(mac_lane, 2) / mac_num / core_num)
+                            nonlinear_latencys.IA_loading += math.ceil(maclane_col_num * maclane_row_num * math.pow(mac_lane, 2) / mac_num / core_num)
+                            nonlinear_latencys.IA_loading_residual += math.ceil(maclane_col_num * maclane_row_num * math.pow(mac_lane, 2) / mac_num / core_num)
+                            tmp += math.ceil(maclane_col_num * maclane_row_num * math.pow(mac_lane, 2) / mac_num / core_num)
+                            n += 1
+                            
+                        # add N/(N+1)/N+2 cubes together
+                        # route to PPU
+                        # latencys.add_NoC_cores_to_ppu(3 * maclane_col_num * maclane_row_num * math.pow(mac_lane, 2), "FC_partialsum")
+                        latencys.NoC_transactions += (core_num + n) * 3 * maclane_col_num * maclane_row_num * math.pow(mac_lane, 2)
+                        latencys.NoC_transactions_FC_partialsum += (core_num + n) * 3 * maclane_col_num * maclane_row_num * math.pow(mac_lane, 2)
+                        
+                        # calculate
+                        latencys.add_ppu_count(3 * maclane_col_num * maclane_row_num * math.pow(mac_lane, 2) * core_num)
+                        
+                        # route to cores
+                        # latencys.add_NoC_ppu_to_core(3 * maclane_col_num * maclane_row_num * math.pow(mac_lane, 2), "FC_partialsum")
+                        if (partition_idx == (len(IA_rounds_per_die_list) - 1)) and (k == (i - 1)):
+                            # if last round, complete sum
+                            latencys.NoC_transactions += maclane_col_num * maclane_row_num * math.pow(mac_lane, 2)
+                            latencys.NoC_transactions_FC_partialsum += maclane_col_num * maclane_row_num * math.pow(mac_lane, 2)
+                        else: 
+                            # not last round, route back partial sum
+                            latencys.NoC_transactions += 3 * maclane_col_num * maclane_row_num * math.pow(mac_lane, 2)
+                            latencys.NoC_transactions_FC_partialsum += 3 * maclane_col_num * maclane_row_num * math.pow(mac_lane, 2)
+                        
+                        # write mac-lane * mac-lane block back into HMC
+                        # write back partial sum or complete sum
+                        latencys.IA_loading += (1 if (partition_idx == (len(IA_rounds_per_die_list) - 1)) and (k == (i - 1)) else 3) * maclane_col_num * maclane_row_num * math.ceil(math.pow(mac_lane, 2) / mac_num / core_num)
+                        latencys.IA_loading_FC_wb += (1 if (partition_idx == (len(IA_rounds_per_die_list) - 1)) and (k == (i - 1)) else 3) * maclane_col_num * maclane_row_num * math.ceil(math.pow(mac_lane, 2) / mac_num / core_num)
+                        IA_loading3 += (1 if (partition_idx == (len(IA_rounds_per_die_list) - 1)) and (k == (i - 1)) else 3) * maclane_col_num * maclane_row_num * math.ceil(math.pow(mac_lane, 2) / mac_num / core_num)
+
+                        if calculation_print and debug_f:
+                            print(f"(maclane_row_num, maclane_col_num): ({maclane_row_num}, {maclane_col_num})")
+                            calculation_print = False
+            # a partition of IA finishes calculating, we need to rotate partitions among dies
+            # step1: read all the partition data from HMC to logic die
+            # step2: transfer to other die's logic die
+            # step3: write all the partition data from logic die to HMC
+            # NOTE: first sub-round of a partition moves to calculation immediately without writing into HMC first     
+            #       IA loading has a core_num parallelism
+            #       we rotate IA, not results!
+            # FIXME: here we use the first die's latency to represent the total latency, however, there exists case that the first die is not the die with the longest processing latency 
+            if (partition_idx + 1) < len(IA_rounds_per_die_list):          
+                # last subround is already in SRAM, no loading
+                # NOTE: here loading and writing back may be no neccessary
+                # latencys.IA_loading += max(math.ceil(IA_big_col_per_die_list[partition_idx] * psum_num * IA_rows / core_num) - psum_num * IA_rows_per_round_list[-1], 0)
+                # latencys.IA_loading_IA_rotation += max(math.ceil(IA_big_col_per_die_list[partition_idx] * psum_num * IA_rows / core_num) - psum_num * IA_rows_per_round_list[-1], 0)
+                # p_NonLinear_Statistics[5].latency.IA_loading += max(math.ceil(IA_big_col_per_die_list[partition_idx] * psum_num * IA_rows / core_num) - psum_num * IA_rows_per_round_list[-1], 0)
+                # p_NonLinear_Statistics[5].latency.IA_loading_IA_rotation += max(math.ceil(IA_big_col_per_die_list[partition_idx] * psum_num * IA_rows / core_num) - psum_num * IA_rows_per_round_list[-1], 0)
+                # nonlinear_latencys.IA_loading += max(math.ceil(IA_big_col_per_die_list[partition_idx] * psum_num * IA_rows / core_num) - psum_num * IA_rows_per_round_list[-1], 0)
+                # nonlinear_latencys.IA_loading_IA_rotation += max(math.ceil(IA_big_col_per_die_list[partition_idx] * psum_num * IA_rows / core_num) - psum_num * IA_rows_per_round_list[-1], 0)
+                # IA_loading4 += max(math.ceil(IA_big_col_per_die_list[partition_idx] * psum_num * IA_rows / core_num) - psum_num * IA_rows_per_round_list[-1], 0)
                 
-        print(f"---------- FC {FC_no} end ------------")
+                # sending & receriving
+                # latencys.add_NoC_cores_to_ppu(IA_big_col_per_die_list[partition_idx] * psum_num * IA_rows * mac_num / core_num, "IA_rotation")
+                latencys.NoC_transactions += max(IA_big_col_per_die_list) * psum_num * IA_rows * mac_num
+                latencys.NoC_transactions_IA_rotation += max(IA_big_col_per_die_list) * psum_num * IA_rows * mac_num
+                # latencys.add_NoP_rotation(IA_big_col_per_die_list[partition_idx] * psum_num * IA_rows * mac_num)  
+                latencys.NoP_transactions += weight_rows * IA_rows
+                latencys.NoP_transactions_IA_rotation += weight_rows * IA_rows
+                # latencys.add_NoC_ppu_to_cores_m(IA_big_col_per_die_list[partition_idx + 1] * psum_num * IA_rows * mac_num / core_num, "IA_rotation")
+                latencys.NoC_transactions += max(IA_big_col_per_die_list) * psum_num * IA_rows * mac_num
+                latencys.NoC_transactions_IA_rotation += max(IA_big_col_per_die_list) * psum_num * IA_rows * mac_num
+                
+                # p_NonLinear_Statistics[5].latency.add_NoC_cores_to_ppu(IA_big_col_per_die_list[partition_idx] * psum_num * IA_rows * mac_num / core_num, "IA_rotation")
+                p_NonLinear_Statistics[5].latency.NoC_transactions += max(IA_big_col_per_die_list) * psum_num * IA_rows * mac_num
+                p_NonLinear_Statistics[5].latency.NoC_transactions_IA_rotation += max(IA_big_col_per_die_list) * psum_num * IA_rows * mac_num
+                # p_NonLinear_Statistics[5].latency.add_NoP_rotation(IA_big_col_per_die_list[partition_idx] * psum_num * IA_rows * mac_num)  
+                p_NonLinear_Statistics[5].latency.NoP_transactions += weight_rows * IA_rows
+                p_NonLinear_Statistics[5].latency.NoP_transactions_IA_rotation += weight_rows * IA_rows
+                # p_NonLinear_Statistics[5].latency.add_NoC_ppu_to_cores_m(IA_big_col_per_die_list[partition_idx + 1] * psum_num * IA_rows / core_num, "IA_rotation")
+                p_NonLinear_Statistics[5].latency.NoC_transactions += max(IA_big_col_per_die_list) * psum_num * IA_rows * mac_num
+                p_NonLinear_Statistics[5].latency.NoC_transactions_IA_rotation += max(IA_big_col_per_die_list) * psum_num * IA_rows * mac_num
+                
+                # nonlinear_latencys.add_NoC_cores_to_ppu(IA_big_col_per_die_list[partition_idx] * psum_num * IA_rows * mac_num / core_num, "IA_rotation")
+                nonlinear_latencys.NoC_transactions += max(IA_big_col_per_die_list) * psum_num * IA_rows * mac_num
+                nonlinear_latencys.NoC_transactions_IA_rotation += max(IA_big_col_per_die_list) * psum_num * IA_rows * mac_num
+                # nonlinear_latencys.add_NoP_rotation(IA_big_col_per_die_list[partition_idx] * psum_num * IA_rows * mac_num)  
+                nonlinear_latencys.NoP_transactions += weight_rows * IA_rows
+                nonlinear_latencys.NoP_transactions_IA_rotation += weight_rows * IA_rows
+                # nonlinear_latencys.add_NoC_ppu_to_cores_m(IA_big_col_per_die_list[partition_idx + 1] * psum_num * IA_rows / core_num, "IA_rotation")
+                nonlinear_latencys.NoC_transactions += max(IA_big_col_per_die_list) * psum_num * IA_rows * mac_num
+                nonlinear_latencys.NoC_transactions_IA_rotation += max(IA_big_col_per_die_list) * psum_num * IA_rows * mac_num
+                
+                # the first sub-round's data don't need to store 
+                # NOTE: here loading and writing back may be no neccessary
+                # latencys.IA_loading += max(math.ceil(IA_big_col_per_die_list[partition_idx + 1] * psum_num * IA_rows / core_num) - psum_num * IA_rows_per_round_list[0], 0)
+                # latencys.IA_loading_IA_rotation_wb += max(math.ceil(IA_big_col_per_die_list[partition_idx + 1] * psum_num * IA_rows / core_num) - psum_num * IA_rows_per_round_list[0], 0)
+                # p_NonLinear_Statistics[5].latency.IA_loading += max(math.ceil(IA_big_col_per_die_list[partition_idx + 1] * psum_num * IA_rows / core_num) - psum_num * IA_rows_per_round_list[0], 0)
+                # p_NonLinear_Statistics[5].latency.IA_loading_IA_rotation_wb += max(math.ceil(IA_big_col_per_die_list[partition_idx + 1] * psum_num * IA_rows / core_num) - psum_num * IA_rows_per_round_list[0], 0)
+                # nonlinear_latencys.IA_loading += max(math.ceil(IA_big_col_per_die_list[partition_idx + 1] * psum_num * IA_rows / core_num) - psum_num * IA_rows_per_round_list[0], 0)
+                # nonlinear_latencys.IA_loading_IA_rotation_wb += max(math.ceil(IA_big_col_per_die_list[partition_idx + 1] * psum_num * IA_rows / core_num) - psum_num * IA_rows_per_round_list[0], 0)
+                # IA_loading5 += max(math.ceil(IA_big_col_per_die_list[partition_idx + 1] * psum_num * IA_rows / core_num) - psum_num * IA_rows_per_round_list[0], 0)
+                
+                if debug_on:
+                    print("---------------------- FC partition start --------------------")
+                    print(f"IA_rounds_per_die_list: {IA_rounds_per_die_list}")
+                    print(f"IA_big_col_per_die_list: {IA_big_col_per_die_list}")
+                    print(f"partition_idx: {partition_idx}")
+                    print(f"IA_loading: {IA_big_col_per_die_list[partition_idx + 1] * psum_num * IA_rows}")
+                    print(f"NoP_8: {IA_big_col_per_die_list[partition_idx] * psum_num * IA_rows + IA_big_col_per_die_list[partition_idx + 1] * psum_num * IA_rows}")
+                    print(f"IA_writing: {max(IA_big_col_per_die_list[partition_idx + 1] * psum_num * IA_rows - core_num * psum_num * IA_rows, 0)}")
+                    print("---------------------- FC partition end --------------------")
+                                
+                partition_idx += 1 
+    else:
+        """ output-stationary """
+            
+        """ calculate IA row partition """
+        IA_row_per_core = math.ceil(IA_rows / core_num)
+        # IA_maclane_row_per_core = math.ceil(IA_row_per_core / mac_lane)
+        IA_row_per_core_list = [0] * core_num
+        IA_row_per_core_max = 0
+        (IA_row_per_core_list, IA_row_per_core_max) = calculate_weights_col_assignment(core_num, IA_row_per_core, 1, IA_rows)
+        if debug_f:
+            print(f"IA_row_per_core_list: {IA_row_per_core_list}")
+            
+        """ calculate the maximum weight columns assigned to die """
+        weights_col_per_die = math.ceil(weight_cols / die_num) 
+        weights_maclane_col_per_die = math.ceil(weights_col_per_die / mac_lane)
+        weights_col_per_die_list = [0] * die_num
+        weights_col_per_die_max = 0
+        (weights_col_per_die_list, weights_col_per_die_max) = calculate_weights_col_assignment(die_num, weights_maclane_col_per_die, mac_lane, weight_cols)
+        if debug_f: 
+            print(f"weights_col_per_die_list: {weights_col_per_die_list}")
+            
+        """ calculate the maximum weight columns assigned to core, using weights_col_per_die_max as representation """    
+        weights_col_per_core = math.ceil(weights_col_per_die_max / core_num)
+        weights_maclane_col_per_core = math.ceil(weights_col_per_core / mac_lane)
+        weights_col_per_core_list = [0] * core_num
+        weights_col_per_core_max = 0
+        (weights_col_per_core_list, weights_col_per_core_max) = calculate_weights_col_assignment(core_num, weights_maclane_col_per_core, mac_lane, weights_col_per_die_max)
+        if debug_f:
+            print(f"weights_col_per_core_list: {weights_col_per_core_list}")
+            
+        """ calculate the weight cols per round """
+        rounds_weight_within_core = math.ceil(weights_col_per_core_max / mac_lane)
+        rounds_psum = math.ceil(weight_rows / (sram2_height / mac_lane * mac_num))
+        if debug_f:
+            print(f"rounds_weight_within_core: {rounds_weight_within_core}")
+            print(f"rounds_psum: {rounds_psum}")
+
+        """ calculate partial sum partition """
+        psum_num_per_round = math.ceil(weight_rows / rounds_psum)
+        psum_macnum_per_round = math.ceil(psum_num_per_round / mac_num)
+        psum_num_per_round_list = [0] * rounds_psum
+        (psum_num_per_round_list, _) = calculate_weights_col_assignment(rounds_psum, psum_macnum_per_round, mac_num, weight_rows)
+        for i in range(len(psum_num_per_round_list)):
+            psum_num_per_round_list[i] = math.ceil(psum_num_per_round_list[i] / mac_num)
+        if debug_f:
+            print(f"psum_num_per_round_list: {psum_num_per_round_list}")
+        
+        """ calculate IA row partition per round """
+        # number of rows of IA within a round
+        rows_seg = math.floor(sram2_height / psum_num_per_round_list[0]) 
+        IA_row_per_round_list = []
+        IA_row_per_core_max_tmp = IA_row_per_core_max
+        while IA_row_per_core_max_tmp > 0:
+            IA_row_per_core_max_tmp = IA_row_per_core_max_tmp - rows_seg
+            if IA_row_per_core_max_tmp >= 0:
+                IA_row_per_round_list.append(rows_seg)
+            else:
+                IA_row_per_round_list.append(IA_row_per_core_max_tmp + rows_seg)
+        if debug_f:
+            print(f"IA_row_per_round_list: {IA_row_per_round_list}")
+        
+        # since every die keeps cols of IA, from the very beginning, we made every die to store complete IA
+        # FIXME consider overlapped IA loading & writing
+        """ calculate IA col partition for IA rotation """
+        # number of IA_rows * mac_num * psum_num sub-matrix of IA
+        big_col_num = math.ceil(weight_rows / mac_num)
+        IA_big_col_per_die = math.ceil(big_col_num / die_num)
+        IA_core_big_col_per_die = math.ceil(IA_big_col_per_die / core_num)
+        # every element in the list can be divided by core number
+        IA_big_col_per_die_list = [0] * die_num
+        (IA_big_col_per_die_list, _) = calculate_weights_col_assignment(die_num, IA_core_big_col_per_die, core_num, big_col_num)
+        if debug_f:
+            print(f"IA_big_col_per_die_list: {IA_big_col_per_die_list}")
+            
+        # FIXME: maybe IA duplication is not neccessary? we only need to route data, not duplicate, therefore only transcation overhead need to be considered
+        # latencys.IA_loading += IA_row_per_core_max * IA_big_col_per_die_list[0]
+        # latencys.IA_loading_IA_rotation += IA_row_per_core_max * IA_big_col_per_die_list[0]
+        latencys.NoC_transactions += IA_rows * IA_big_col_per_die_list[0] * mac_num
+        latencys.NoC_transactions_IA_rotation += IA_rows * IA_big_col_per_die_list[0] * mac_num
+        # FIXME: here means every die need to send all other dies its data
+        for i in IA_big_col_per_die_list:
+            latencys.NoP_transactions += mac_num * (die_num - 1) * IA_rows * i
+            latencys.NoP_transactions_IA_rotation += mac_num * (die_num - 1) * IA_rows * i
+        latencys.NoC_transactions += IA_big_col_per_die_list[0] * mac_num * IA_rows
+        latencys.NoC_transactions_IA_rotation += IA_big_col_per_die_list[0] * mac_num * IA_rows
+        # latencys.IA_loading += IA_row_per_core_max * IA_big_col_per_die_list[0]
+        # latencys.IA_loading_IA_rotation += IA_row_per_core_max * IA_big_col_per_die_list[0]
+        
+        # within a die, since every core keeps cols of IA, there's extra NoC
+        IA_out = []
+        for i in range(core_num):
+            IA_out.append((IA_rows - IA_row_per_core_list[i]) * weights_col_per_core_list[i])
+        if debug_f:
+            print(f"IA_out: {IA_out}")
+        latencys.NoC_transactions += sum(IA_out)
+        
+        # now, every core has several complete rows of IA, calculation and inner-die calculations 
+        
+        for i in range(len(weights_col_per_core_list)):
+            for j in range(rounds_weight_within_core):
+                for k in range(len(IA_row_per_round_list)):
+                    row_num = IA_row_per_round_list[k]
+                    col_num = mac_lane
+                    
+                    for l in range(len(psum_num_per_round_list)):
+                        latencys.IA_loading += psum_num_per_round_list[l] * row_num
+                        latencys.IA_loading_FC_operand += psum_num_per_round_list[l] * row_num
+                        if k == 0:
+                            latencys.weight_loading += psum_num_per_round_list[l] * col_num
+                        latencys.cal += math.ceil(row_num * col_num / mac_lane) * psum_num_per_round_list[l]
+                        if l == (len(psum_num_per_round_list) - 1):
+                            # calculation completes, we need to write back
+                            latencys.IA_loading += math.ceil(row_num * col_num / mac_num)
+                            latencys.IA_loading_FC_wb += math.ceil(row_num * col_num / mac_num)
+                            if is_residual_after:
+                                latencys.IA_loading += math.ceil(row_num * col_num / mac_num)
+                                latencys.IA_loading_residual += math.ceil(row_num * col_num / mac_num)
+                                p_NonLinear_Statistics[4].latency.IA_loading += math.ceil(row_num * col_num / mac_num)
+                                p_NonLinear_Statistics[4].latency.IA_loading_residual += math.ceil(row_num * col_num / mac_num)
+                                nonlinear_latencys.IA_loading += math.ceil(row_num * col_num / mac_num)
+                                nonlinear_latencys.IA_loading_residual += math.ceil(row_num * col_num / mac_num)
+                        if i > 0:
+                            # loading weight from other CHs, NoC should be considered
+                            latencys.NoC_transactions += core_num * psum_num_per_round_list[l] * col_num
+                            latencys.NoC_transactions_FC_weight += core_num * psum_num_per_round_list[l] * col_num
+         
+    # if debug_f: 
+    #     print(f"IA_loading1: {IA_loading1}")
+    #     print(f"IA_loading2: {IA_loading2}")
+    #     print(f"IA_loading3: {IA_loading3}")
+    #     print(f"IA_loading4: {IA_loading4}")
+    #     print(f"IA_loading5: {IA_loading5}")
+    #     print("------------- Residual Connections start -----------")             
+    #     print(f"Residual IA loading: {tmp}")
+    #     print("------------- Residual Connections end -------------")             
+                
+    #     print(f"---------- FC {FC_no} end ------------")
     # latencys.dump()                    
     return (latencys, nonlinear_latencys)
 
@@ -1051,7 +1191,7 @@ def MH_latency(die_num, core_num, seq_len_table, group_idx_table, B, H, sram2_he
     # print(sum.index(max(sum)))  
     return latencys[sum.index(max(sum))]  
 
-def LayerNorm_latency(IA_rows, IA_cols, die_num, core_num, mac_lane, mac_num, psum_num, sram2_height, params, debug_on=False):
+def LayerNorm_latency(IA_rows, IA_cols, die_num, core_num, mac_lane, mac_num, psum_num, sram2_height, params, partition_mode=0, debug_on=False):
     # suppose at the very beginning, IA is partitioned to store on different dies
     # steps:
     # 1. load data into cores(suppose no NoC), every core has several cols
@@ -1067,137 +1207,195 @@ def LayerNorm_latency(IA_rows, IA_cols, die_num, core_num, mac_lane, mac_num, ps
     latencys = latency()
     latencys.get_params(params)
     
-    """ rotation mode """
-    # number of IA_rows * mac_num * psum_num sub-matrix of IA
-    big_col_num = math.ceil(IA_cols / mac_num / psum_num)
-    IA_big_col_per_die = math.ceil(big_col_num / die_num)
-    IA_core_big_col_per_die = math.ceil(IA_big_col_per_die / core_num)
-    # every element in the list can be divided by core number
-    IA_big_col_per_die_list = [0] * die_num
-    (IA_big_col_per_die_list, _) = calculate_weights_col_assignment(die_num, IA_core_big_col_per_die, core_num, big_col_num)
+    if partition_mode == 0:
+        """ col-wise storage """
+        
+        # number of IA_rows * mac_num * psum_num sub-matrix of IA
+        big_col_num = math.ceil(IA_cols / mac_num / psum_num)
+        IA_big_col_per_die = math.ceil(big_col_num / die_num)
+        IA_core_big_col_per_die = math.ceil(IA_big_col_per_die / core_num)
+        # every element in the list can be divided by core number
+        IA_big_col_per_die_list = [0] * die_num
+        (IA_big_col_per_die_list, _) = calculate_weights_col_assignment(die_num, IA_core_big_col_per_die, core_num, big_col_num)
+        
+        if debug_f:
+            print("---------- LN start ------------")          
+            print(f"IA_big_col_per_die_list: {IA_big_col_per_die_list}")  
+            print(f"IA_rows: {IA_rows}")
+        
+        # 1. loading all data to the logic die                # number of big column in each core
+        latencys.IA_loading += IA_rows * psum_num * math.ceil(IA_big_col_per_die_list[0] / core_num)
+        latencys.IA_loading_LN += IA_rows * psum_num * math.ceil(IA_big_col_per_die_list[0] / core_num)
+        
+        # 2.1 every core calcualtes their local average(addition+division)
+        # latencys.add_8 += IA_rows * psum_num * mac_num * math.ceil(IA_big_col_per_die_list[0] / core_num)
+        # latencys.division += IA_rows
+        latencys.add_ppu_count(IA_rows * psum_num * mac_num * math.ceil(IA_big_col_per_die_list[0] / core_num))
+        latencys.add_ppu_count(IA_rows)
+        
+        # 2.2 NoC to die's PPU to calculate die average
+        # latencys.NoC_24 += IA_rows 
+        # latencys.add_24 += core_num * IA_rows
+        # latencys.division += IA_rows
+        # for i in range(core_num):
+        # latencys.add_NoC_cores_to_ppu(IA_rows * 3, "LN")
+        latencys.NoC_transactions += core_num * IA_rows * 3
+        latencys.NoC_transactions_LN += core_num * IA_rows * 3
+        latencys.add_ppu_count(core_num * IA_rows * 3)
+        latencys.add_ppu_count(IA_rows * 3)
+        
+        # 3.1 NoP to shared PPU
+        # latencys.NoP_24 += die_num * IA_rows
+        # for i in range(die_num):
+        # latencys.add_NoP_dies_to_ppu(IA_rows * 3, "LN")
+        latencys.NoP_transactions += IA_rows * 3 * die_num
+        latencys.NoP_transactions_LN += IA_rows * 3 * die_num
+        
+        # 3.2 calculate the overall average
+        # latencys.add_24 += die_num * IA_rows
+        # latencys.division += IA_rows
+        latencys.add_ppu_count(die_num * IA_rows * 3)
+        latencys.add_ppu_count(IA_rows * 3)
+        
+        # 3.3 NoP to each die
+        # latencys.NoP_24 += IA_rows
+        # for i in range(die_num):
+        # latencys.add_NoP_ppu_to_dies_s(IA_rows * 3, "LN")
+        latencys.NoP_transactions += IA_rows * 3
+        latencys.NoP_transactions_LN += IA_rows * 3
+        
+        # 4.1 NoC average to each core
+        # latencys.NoC_24 += IA_rows
+        # for i in range(core_num):
+        # latencys.add_NoC_ppu_to_cores_s(IA_rows * 3, "LN")
+        latencys.NoC_transactions += IA_rows * 3
+        latencys.NoC_transactions_LN += IA_rows * 3
+        
+        # 4.2 each core calculates portion of Var's denominator
+        # latencys.substract_square += IA_rows * psum_num * mac_num * math.ceil(IA_big_col_per_die_list[0] / core_num)
+        # latencys.add_24 += IA_rows * psum_num * mac_num * math.ceil(IA_big_col_per_die_list[0] / core_num)
+        # latencys.division += IA_rows
+        latencys.add_ppu_count(IA_rows * psum_num * mac_num * math.ceil(IA_big_col_per_die_list[0] / core_num))
+        latencys.add_ppu_count(3 * IA_rows * psum_num * mac_num * math.ceil(IA_big_col_per_die_list[0] / core_num))
+        latencys.add_ppu_count(IA_rows * 3)
+        
+        # 5.1 NoC to die's PPU to calculate die average
+        # latencys.NoC_24 += IA_rows 
+        # latencys.add_24 += core_num * IA_rows
+        # latencys.division += IA_rows
+        # for i in range(core_num):
+        # latencys.add_NoC_cores_to_ppu(IA_rows * 3, "LN")
+        latencys.NoC_transactions += core_num * IA_rows * 3
+        latencys.NoC_transactions_LN += core_num * IA_rows * 3
+        latencys.add_ppu_count(core_num * IA_rows * 3)
+        latencys.add_ppu_count(IA_rows * 3)
+        
+        # 5.2 NoP to shared PPU
+        # latencys.NoP_24 += die_num * IA_rows
+        # for i in range(die_num):
+        # latencys.add_NoP_dies_to_ppu(IA_rows * 3, "LN")
+        latencys.NoP_transactions += IA_rows * 3 * die_num
+        latencys.NoP_transactions_LN += IA_rows * 3 * die_num
+        
+        # 5.3 calculate the overall average
+        # latencys.add_24 += die_num * IA_rows
+        # latencys.division += IA_rows
+        latencys.add_ppu_count(die_num * IA_rows * 3)
+        latencys.add_ppu_count(IA_rows * 3)
+        
+        # 5.4 NoP to each die
+        # latencys.NoP_24 += IA_rows
+        # for i in range(die_num):
+        # latencys.add_NoP_ppu_to_dies_s(IA_rows * 3, "LN")
+        latencys.NoP_transactions += IA_rows * 3
+        latencys.NoP_transactions_LN += IA_rows * 3
+        
+        # 6.1 NoC average to each core
+        # latencys.NoC_24 += IA_rows
+        # for i in range(core_num):
+        # latencys.add_NoC_ppu_to_cores_s(IA_rows * 3, "LN")
+        latencys.NoC_transactions += IA_rows * 3
+        latencys.NoC_transactions_LN += IA_rows * 3
+        
+        # 6.2 now every core has EX and Var, each can calculate the final results
+        # latencys.LN += IA_rows * psum_num * mac_num * math.ceil(IA_big_col_per_die_list[0] / core_num)
+        # FIXME: here LN operation is complicated rather than a single operation, maybe we should add this multiple times
+        latencys.add_ppu_count(IA_rows * psum_num * mac_num * math.ceil(IA_big_col_per_die_list[0] / core_num))
+        
+        # 7. write back to HMC
+        latencys.IA_loading += IA_rows * psum_num * math.ceil(IA_big_col_per_die_list[0] / core_num)
+        latencys.IA_loading_LN += IA_rows * psum_num * math.ceil(IA_big_col_per_die_list[0] / core_num)
+        
+        # NOTE: here we can left first round of IA on logic die to save latency
+        """ calcualte how many rounds of calculation should a die goes through for IA """
+        # number of rounds to complete using IA in row-dim
+        rounds_IA = math.ceil(IA_rows / (sram2_height / psum_num))
+        IA_rows_per_round = math.ceil(IA_rows / rounds_IA)
+        IA_maclane_row_per_round = math.ceil(IA_rows_per_round / mac_lane)
+        IA_rows_per_round_list = [0] * rounds_IA
+        IA_rows_per_round_max = 0
+        (IA_rows_per_round_list, IA_rows_per_round_max) = calculate_weights_col_assignment(rounds_IA, IA_maclane_row_per_round, mac_lane, IA_rows)
+        if debug_f:
+            print(f"IA_rows_per_round_list: {IA_rows_per_round_list}")
+        latencys.IA_loading -= IA_rows_per_round_list[0] * psum_num
+        latencys.IA_loading_LN -= IA_rows_per_round_list[0] * psum_num
     
-    if debug_f:
-        print("---------- LN start ------------")          
-        print(f"IA_big_col_per_die_list: {IA_big_col_per_die_list}")  
-        print(f"IA_rows: {IA_rows}")
-    
-    # 1. loading all data to the logic die                # number of big column in each core
-    latencys.IA_loading += IA_rows * psum_num * math.ceil(IA_big_col_per_die_list[0] / core_num)
-    latencys.IA_loading_LN += IA_rows * psum_num * math.ceil(IA_big_col_per_die_list[0] / core_num)
-    
-    # 2.1 every core calcualtes their local average(addition+division)
-    # latencys.add_8 += IA_rows * psum_num * mac_num * math.ceil(IA_big_col_per_die_list[0] / core_num)
-    # latencys.division += IA_rows
-    latencys.add_ppu_count(IA_rows * psum_num * mac_num * math.ceil(IA_big_col_per_die_list[0] / core_num))
-    latencys.add_ppu_count(IA_rows)
-    
-    # 2.2 NoC to die's PPU to calculate die average
-    # latencys.NoC_24 += IA_rows 
-    # latencys.add_24 += core_num * IA_rows
-    # latencys.division += IA_rows
-    # for i in range(core_num):
-    # latencys.add_NoC_cores_to_ppu(IA_rows * 3, "LN")
-    latencys.NoC_transactions += core_num * IA_rows * 3
-    latencys.NoC_transactions_LN += core_num * IA_rows * 3
-    latencys.add_ppu_count(core_num * IA_rows * 3)
-    latencys.add_ppu_count(IA_rows * 3)
-    
-    # 3.1 NoP to shared PPU
-    # latencys.NoP_24 += die_num * IA_rows
-    # for i in range(die_num):
-    # latencys.add_NoP_dies_to_ppu(IA_rows * 3, "LN")
-    latencys.NoP_transactions += IA_rows * 3 * die_num
-    latencys.NoP_transactions_LN += IA_rows * 3 * die_num
-    
-    # 3.2 calculate the overall average
-    # latencys.add_24 += die_num * IA_rows
-    # latencys.division += IA_rows
-    latencys.add_ppu_count(die_num * IA_rows * 3)
-    latencys.add_ppu_count(IA_rows * 3)
-    
-    # 3.3 NoP to each die
-    # latencys.NoP_24 += IA_rows
-    # for i in range(die_num):
-    # latencys.add_NoP_ppu_to_dies_s(IA_rows * 3, "LN")
-    latencys.NoP_transactions += IA_rows * 3
-    latencys.NoP_transactions_LN += IA_rows * 3
-    
-    # 4.1 NoC average to each core
-    # latencys.NoC_24 += IA_rows
-    # for i in range(core_num):
-    # latencys.add_NoC_ppu_to_cores_s(IA_rows * 3, "LN")
-    latencys.NoC_transactions += IA_rows * 3
-    latencys.NoC_transactions_LN += IA_rows * 3
-    
-    # 4.2 each core calculates portion of Var's denominator
-    # latencys.substract_square += IA_rows * psum_num * mac_num * math.ceil(IA_big_col_per_die_list[0] / core_num)
-    # latencys.add_24 += IA_rows * psum_num * mac_num * math.ceil(IA_big_col_per_die_list[0] / core_num)
-    # latencys.division += IA_rows
-    latencys.add_ppu_count(IA_rows * psum_num * mac_num * math.ceil(IA_big_col_per_die_list[0] / core_num))
-    latencys.add_ppu_count(IA_rows * psum_num * mac_num * math.ceil(IA_big_col_per_die_list[0] / core_num))
-    latencys.add_ppu_count(IA_rows * 3)
-    
-    # 5.1 NoC to die's PPU to calculate die average
-    # latencys.NoC_24 += IA_rows 
-    # latencys.add_24 += core_num * IA_rows
-    # latencys.division += IA_rows
-    # for i in range(core_num):
-    # latencys.add_NoC_cores_to_ppu(IA_rows * 3, "LN")
-    latencys.NoC_transactions += core_num * IA_rows *3
-    latencys.NoC_transactions_LN += core_num * IA_rows *3
-    latencys.add_ppu_count(core_num * IA_rows * 3)
-    latencys.add_ppu_count(IA_rows * 3)
-    
-    # 5.2 NoP to shared PPU
-    # latencys.NoP_24 += die_num * IA_rows
-    # for i in range(die_num):
-    # latencys.add_NoP_dies_to_ppu(IA_rows * 3, "LN")
-    latencys.NoP_transactions += IA_rows * 3 * die_num
-    latencys.NoP_transactions_LN += IA_rows * 3 * die_num
-    
-    # 5.3 calculate the overall average
-    # latencys.add_24 += die_num * IA_rows
-    # latencys.division += IA_rows
-    latencys.add_ppu_count(die_num * IA_rows * 3)
-    latencys.add_ppu_count(IA_rows * 3)
-    
-    # 5.4 NoP to each die
-    # latencys.NoP_24 += IA_rows
-    # for i in range(die_num):
-    # latencys.add_NoP_ppu_to_dies_s(IA_rows * 3, "LN")
-    latencys.NoP_transactions += IA_rows * 3
-    latencys.NoP_transactions_LN += IA_rows * 3
-    
-    # 6.1 NoC average to each core
-    # latencys.NoC_24 += IA_rows
-    # for i in range(core_num):
-    # latencys.add_NoC_ppu_to_cores_s(IA_rows * 3, "LN")
-    latencys.NoC_transactions += IA_rows * 3
-    latencys.NoC_transactions_LN += IA_rows * 3
-    
-    # 6.2 now every core has EX and Var, each can calculate the final results
-    # latencys.LN += IA_rows * psum_num * mac_num * math.ceil(IA_big_col_per_die_list[0] / core_num)
-    # FIXME: here LN operation is complicated rather than a single operation, maybe we should add this multiple times
-    latencys.add_ppu_count(IA_rows * psum_num * mac_num * math.ceil(IA_big_col_per_die_list[0] / core_num))
-    
-    # 7. write back to HMC
-    latencys.IA_loading += IA_rows * psum_num * math.ceil(IA_big_col_per_die_list[0] / core_num)
-    latencys.IA_loading_LN += IA_rows * psum_num * math.ceil(IA_big_col_per_die_list[0] / core_num)
-    
-    # NOTE: here we can left first round of IA on logic die to save latency
-    """ calcualte how many rounds of calculation should a die goes through for IA """
-    # number of rounds to complete using IA in row-dim
-    rounds_IA = math.ceil(IA_rows / (sram2_height / psum_num))
-    IA_rows_per_round = math.ceil(IA_rows / rounds_IA)
-    IA_maclane_row_per_round = math.ceil(IA_rows_per_round / mac_lane)
-    IA_rows_per_round_list = [0] * rounds_IA
-    IA_rows_per_round_max = 0
-    (IA_rows_per_round_list, IA_rows_per_round_max) = calculate_weights_col_assignment(rounds_IA, IA_maclane_row_per_round, mac_lane, IA_rows)
-    if debug_f:
-        print(f"IA_rows_per_round_list: {IA_rows_per_round_list}")
-    latencys.IA_loading -= IA_rows_per_round_list[0] * psum_num
-    latencys.IA_loading_LN -= IA_rows_per_round_list[0] * psum_num
+    else:
+        """ row-wise partition """
+        
+        """ calculate rows assigned to each core """
+        IA_row_per_core = math.ceil(IA_rows / core_num)
+        IA_maclane_row_per_core = math.ceil(IA_row_per_core / mac_lane)
+        IA_row_per_core_list = [0] * core_num
+        IA_row_per_core_max = 0
+        (IA_row_per_core_list, IA_row_per_core_max) = calculate_weights_col_assignment(core_num, IA_maclane_row_per_core, mac_lane, IA_rows)
+        
+        """ calculate IA col partition for IA rotation """
+        # number of IA_rows * mac_num * psum_num sub-matrix of IA
+        big_col_num = math.ceil(IA_cols / mac_num)
+        IA_big_col_per_die = math.ceil(big_col_num / die_num)
+        IA_core_big_col_per_die = math.ceil(IA_big_col_per_die / core_num)
+        # every element in the list can be divided by core number
+        IA_big_col_per_die_list = [0] * die_num
+        (IA_big_col_per_die_list, _) = calculate_weights_col_assignment(die_num, IA_core_big_col_per_die, core_num, big_col_num)
 
+        # 1. loading all data to the logic die
+        latencys.IA_loading += IA_row_per_core_max * IA_big_col_per_die_list[0]
+        latencys.IA_loading_LN += IA_row_per_core_max * IA_big_col_per_die_list[0]
+        
+        # 2. local avg calculation
+        latencys.add_ppu_count(IA_row_per_core_max * IA_big_col_per_die_list[0] * mac_num)
+        latencys.add_ppu_count(IA_row_per_core_max)
+        
+        # 3. NoC to prepare for NoP
+        latencys.NoC_transactions += 3 * IA_rows
+        latencys.NoC_transactions_LN += 3 * IA_rows
+           
+        # 4. NoP to shared PPU
+        latencys.NoP_transactions += 3 * IA_rows * die_num
+        latencys.NoP_transactions_LN += 3 * IA_rows * die_num
+        latencys.add_ppu_count(die_num * IA_rows * 3)
+        latencys.add_ppu_count(IA_rows * 3)
+        
+        # 5. NoP average to die
+        latencys.NoP_transactions += 3 * IA_rows
+        latencys.NoP_transactions_LN += 3 * IA_rows
+        
+        # 6. NoC to each core
+        latencys.NoC_transactions += 3 * IA_rows
+        latencys.NoC_transactions_LN += 3 * IA_rows
+        
+        # 7. calculates portion of Var's denominator
+        # substract and square
+        latencys.add_ppu_count(IA_row_per_core_max * IA_big_col_per_die_list[0] * mac_num)
+        # accumulation
+        latencys.add_ppu_count(3 * IA_row_per_core_max * IA_big_col_per_die_list[0] * mac_num)
+        # division
+        latencys.add_ppu_count(3 * IA_row_per_core_max)
+        
+        # 8.
+        # TODO
+        
     # if debug_on:
     #     latencys.dump()
     if debug_f:
@@ -1652,11 +1850,6 @@ def simulation(args, requests_pool, Statistics, FC_Statistics, MH_Statistics, No
     sram2_height = args.SRAM2_height
     N = args.core_num_in_die
     
-    """ MAPPING """
-    W = args.W
-    # 0 for IA rotation across dies, 1 for IA duplication, every die has complete IA
-    # softmax_mode = args.softmax_mode
- 
     """ SW """
     B = args.batch_size
     # B = 8
@@ -1665,6 +1858,13 @@ def simulation(args, requests_pool, Statistics, FC_Statistics, MH_Statistics, No
     embedding_dim = args.embedding_dim
     head_embedding_dim = embedding_dim // H
         
+    """ MAPPING """
+    W = args.W
+    W_max_FC123 = min(math.ceil(embedding_dim / die_num / mac_num / N), math.ceil(sram2_height / mac_lane))
+    W_max_FC4 = min(math.ceil(4 * embedding_dim / die_num / mac_num / N), math.ceil(sram2_height / mac_lane))
+    # 0 for IA rotation across dies, 1 for IA duplication, every die has complete IA
+    # softmax_mode = args.softmax_mode
+    
     # how many requests are there in the requests pool - for simulation purpose
     requests_total_count = len(requests_pool)
     
@@ -1697,7 +1897,9 @@ def simulation(args, requests_pool, Statistics, FC_Statistics, MH_Statistics, No
     print("================================ Initial Start ===============================")
     dump_configs(requests_pool, requests_total_count, die_num, mac_lane, mac_num, sram2_height, N, B, H, D, 
                     embedding_dim, head_embedding_dim, MH_alg_level_mode, J_max, J_min, MH_alg_distr_mode)
-
+    print(f"W_max_FC123: {W_max_FC123}")
+    print(f"W_max_FC4: {W_max_FC4}")
+    
     """ seq_len_table initiation """
     for i in range(B):
         seq_len_table[i] = [True, i, requests_pool[i][1], False, False]
@@ -1790,24 +1992,25 @@ def simulation(args, requests_pool, Statistics, FC_Statistics, MH_Statistics, No
                 print(f"IA rows: {IA_rows}")
                 
             """ LN1 """
-            seg_latency = LayerNorm_latency(IA_rows, embedding_dim, die_num, N, mac_lane, mac_num, W, sram2_height, params)
+            seg_latency = LayerNorm_latency(IA_rows, embedding_dim, die_num, N, mac_lane, mac_num, W if args.psum_mode == 0 else W_max_FC123, sram2_height, params, args.partition_mode)
             latency_acc1(seg_latency, Statistics, D)
             latency_acc1(seg_latency, NonLinear_Statistics, D)
             latency_acc1(seg_latency, p_NonLinear_Statistics[0], D)
             latency_acc1(seg_latency, round_Stats, 1)
             
-            if debug_f:
-                seg_latency.dump_portion("SEG")
-                Statistics.latency.dump_portion("total")
-                NonLinear_Statistics.latency.dump_portion("nonlinear")
-                p_NonLinear_Statistics[0].latency.dump_portion("0")
+            # if debug_f:
+                # seg_latency.dump_portion("SEG")
+                # Statistics.latency.dump_portion("total")
+                # NonLinear_Statistics.latency.dump_portion("nonlinear")
+                # p_NonLinear_Statistics[0].latency.dump_portion("0")
                         
             """ FC1 """
             # if debug_on:
             #     print("------------- FC1 -------------")
             # seg_latency = stage_latency(die_num, N, 3 * embedding_dim, embedding_dim, mac_lane, mac_num, 1, sram2_height, IA_rows, debug_on)
             # NOTE suppose at the very beginning of
-            (seg_latency, nonlinear_latency) = stage_latency(die_num, N, 3 * embedding_dim, embedding_dim, mac_lane, mac_num, W, sram2_height, IA_rows, p_NonLinear_Statistics, params, 1, True, False)
+            (seg_latency, nonlinear_latency) = stage_latency(die_num, N, 3 * embedding_dim, embedding_dim, mac_lane, mac_num, 
+                                                            W if args.psum_mode == 0 else W_max_FC123, sram2_height, IA_rows, p_NonLinear_Statistics, params, 1, args.partition_mode, True, False)
             latency_acc1(seg_latency, Statistics, D)
             latency_acc1(seg_latency, FC_Statistics, D)
             latency_acc1(nonlinear_latency, NonLinear_Statistics, D)
@@ -1815,9 +2018,9 @@ def simulation(args, requests_pool, Statistics, FC_Statistics, MH_Statistics, No
             latency_acc1(seg_latency, round_Stats, 1)
             if debug_f:
                 seg_latency.dump_portion("SEG")
-                Statistics.latency.dump_portion("total")
-                NonLinear_Statistics.latency.dump_portion("nonlinear")
-                FC_Statistics.latency.dump_portion("FC1")
+                # Statistics.latency.dump_portion("total")
+                # NonLinear_Statistics.latency.dump_portion("nonlinear")
+                # FC_Statistics.latency.dump_portion("FC1")
             # if debug_on:
             #     seg_latency.dump()
             #     Statistics.dump()
@@ -1829,11 +2032,11 @@ def simulation(args, requests_pool, Statistics, FC_Statistics, MH_Statistics, No
             latency_acc1(seg_latency, NonLinear_Statistics, D)
             latency_acc1(seg_latency, p_NonLinear_Statistics[1], D)
             latency_acc1(seg_latency, round_Stats, 1)
-            if debug_f:
-                seg_latency.dump_portion("SEG")
-                Statistics.latency.dump_portion("total")
-                NonLinear_Statistics.latency.dump_portion("nonlinear")
-                p_NonLinear_Statistics[1].latency.dump_portion("1")
+            # if debug_f:
+            #     seg_latency.dump_portion("SEG")
+            #     Statistics.latency.dump_portion("total")
+            #     NonLinear_Statistics.latency.dump_portion("nonlinear")
+            #     p_NonLinear_Statistics[1].latency.dump_portion("1")
             
                     
             """ MH """
@@ -1845,11 +2048,11 @@ def simulation(args, requests_pool, Statistics, FC_Statistics, MH_Statistics, No
             latency_acc1(seg_latency, Statistics, D)
             latency_acc1(seg_latency, MH_Statistics, D)
             latency_acc1(seg_latency, round_Stats, 1)
-            if debug_f:
-                seg_latency.dump_portion("SEG")
-                Statistics.latency.dump_portion("total")
-                MH_Statistics.latency.dump_portion("MH")
-                p_NonLinear_Statistics[2].latency.dump_portion("2")
+            # if debug_f:
+            #     seg_latency.dump_portion("SEG")
+            #     Statistics.latency.dump_portion("total")
+            #     MH_Statistics.latency.dump_portion("MH")
+            #     p_NonLinear_Statistics[2].latency.dump_portion("2")
             # if debug_on:
             #     seg_latency.dump()
             #     Statistics.dump()
@@ -1861,11 +2064,11 @@ def simulation(args, requests_pool, Statistics, FC_Statistics, MH_Statistics, No
             latency_acc1(seg_latency, NonLinear_Statistics, D)
             latency_acc1(seg_latency, p_NonLinear_Statistics[2], D)
             latency_acc1(seg_latency, round_Stats, 1)
-            if debug_f:
-                seg_latency.dump_portion("SEG")
-                Statistics.latency.dump_portion("total")
-                NonLinear_Statistics.latency.dump_portion("nonlinear")
-                p_NonLinear_Statistics[2].latency.dump_portion("2")
+            # if debug_f:
+            #     seg_latency.dump_portion("SEG")
+            #     Statistics.latency.dump_portion("total")
+            #     NonLinear_Statistics.latency.dump_portion("nonlinear")
+            #     p_NonLinear_Statistics[2].latency.dump_portion("2")
             
             """ Concat """
             seg_latency = concat_latency(die_num, N, B, seq_len_table, die_idx_table if MH_alg_level_mode == 0 else core_idx_table, IA_rows, embedding_dim, mac_lane, mac_num, params, MH_alg_level_mode)
@@ -1873,15 +2076,16 @@ def simulation(args, requests_pool, Statistics, FC_Statistics, MH_Statistics, No
             latency_acc1(seg_latency, NonLinear_Statistics, D)
             latency_acc1(seg_latency, p_NonLinear_Statistics[3], D)
             latency_acc1(seg_latency, round_Stats, 1)
-            if debug_f:
-                seg_latency.dump_portion("SEG")
-                p_NonLinear_Statistics[3].latency.dump_portion("3")
+            # if debug_f:
+            #     seg_latency.dump_portion("SEG")
+            #     p_NonLinear_Statistics[3].latency.dump_portion("3")
             
             """ FC2 """
             # if debug_on:
             #     print("------------- FC2 -------------")
             # seg_latency = stage_latency(die_num, N, embedding_dim, embedding_dim, mac_lane, mac_num, 1, sram2_height, IA_rows, debug_on)
-            (seg_latency, nonlinear_latency) = stage_latency(die_num, N, embedding_dim, embedding_dim, mac_lane, mac_num, W, sram2_height, IA_rows, p_NonLinear_Statistics, params, 2, False, True)
+            (seg_latency, nonlinear_latency) = stage_latency(die_num, N, embedding_dim, embedding_dim, mac_lane, mac_num, 
+                                                                W if args.psum_mode == 0 else W_max_FC123, sram2_height, IA_rows, p_NonLinear_Statistics, params, 2, args.partition_mode, False, True)
             latency_acc1(seg_latency, Statistics, D)
             latency_acc1(seg_latency, FC_Statistics, D)
             latency_acc1(nonlinear_latency, NonLinear_Statistics, D)
@@ -1889,30 +2093,31 @@ def simulation(args, requests_pool, Statistics, FC_Statistics, MH_Statistics, No
             latency_acc1(seg_latency, round_Stats, 1)
             if debug_f:
                 seg_latency.dump_portion("SEG")
-                Statistics.latency.dump_portion("total")
-                NonLinear_Statistics.latency.dump_portion("nonlinear")
-                FC_Statistics.latency.dump_portion("FC2")
+                # Statistics.latency.dump_portion("total")
+                # NonLinear_Statistics.latency.dump_portion("nonlinear")
+                # FC_Statistics.latency.dump_portion("FC2")
             # if debug_on:
             #     seg_latency.dump()
             #     Statistics.dump()
             
             """ LN2 """
-            seg_latency = LayerNorm_latency(IA_rows, embedding_dim, die_num, N, mac_lane, mac_num, W, sram2_height, params)
+            seg_latency = LayerNorm_latency(IA_rows, embedding_dim, die_num, N, mac_lane, mac_num, W if args.psum_mode == 0 else W_max_FC123, sram2_height, params, args.partition_mode)
             latency_acc1(seg_latency, Statistics, D)
             latency_acc1(seg_latency, NonLinear_Statistics, D)
             latency_acc1(seg_latency, p_NonLinear_Statistics[0], D)
             latency_acc1(seg_latency, round_Stats, 1)
-            if debug_f:
-                seg_latency.dump_portion("SEG")
-                Statistics.latency.dump_portion("total")
-                NonLinear_Statistics.latency.dump_portion("nonlinear")
-                p_NonLinear_Statistics[0].latency.dump_portion("0")
+            # if debug_f:
+            #     seg_latency.dump_portion("SEG")
+            #     Statistics.latency.dump_portion("total")
+            #     NonLinear_Statistics.latency.dump_portion("nonlinear")
+            #     p_NonLinear_Statistics[0].latency.dump_portion("0")
             
             """ FC3 """
             # if debug_on:
             #     print("------------- FC3 -------------")
             # seg_latency = stage_latency(die_num, N, 4 * embedding_dim, embedding_dim, mac_lane, mac_num, 1, sram2_height, IA_rows, debug_on)
-            (seg_latency, nonlinear_latency) = stage_latency(die_num, N, 4 * embedding_dim, embedding_dim, mac_lane, mac_num, W, sram2_height, IA_rows, p_NonLinear_Statistics, params, 3, True, False)
+            (seg_latency, nonlinear_latency) = stage_latency(die_num, N, 4 * embedding_dim, embedding_dim, mac_lane, mac_num, 
+                                                                W if args.psum_mode == 0 else W_max_FC123, sram2_height, IA_rows, p_NonLinear_Statistics, params, 3, args.partition_mode, True, False)
             latency_acc1(seg_latency, Statistics, D)
             latency_acc1(seg_latency, FC_Statistics, D)
             latency_acc1(nonlinear_latency, NonLinear_Statistics, D)
@@ -1920,9 +2125,9 @@ def simulation(args, requests_pool, Statistics, FC_Statistics, MH_Statistics, No
             latency_acc1(seg_latency, round_Stats, 1)
             if debug_f:
                 seg_latency.dump_portion("SEG")
-                Statistics.latency.dump_portion("total")
-                NonLinear_Statistics.latency.dump_portion("nonlinear")
-                FC_Statistics.latency.dump_portion("FC3")
+                # Statistics.latency.dump_portion("total")
+                # NonLinear_Statistics.latency.dump_portion("nonlinear")
+                # FC_Statistics.latency.dump_portion("FC3")
             # if debug_on:
             #     seg_latency.dump()
             #     Statistics.dump()
@@ -1931,7 +2136,8 @@ def simulation(args, requests_pool, Statistics, FC_Statistics, MH_Statistics, No
             # if debug_on:
             #     print("------------- FC4 -------------")
             # seg_latency = stage_latency(die_num, N, embedding_dim, 4 * embedding_dim, mac_lane, mac_num, 1, sram2_height, IA_rows, debug_on)
-            (seg_latency, nonlinear_latency) = stage_latency(die_num, N, embedding_dim, 4 * embedding_dim, mac_lane, mac_num, W, sram2_height, IA_rows, p_NonLinear_Statistics, params, 4, False, True)
+            (seg_latency, nonlinear_latency) = stage_latency(die_num, N, embedding_dim, 4 * embedding_dim, mac_lane, mac_num, 
+                                                                W if args.psum_mode == 0 else W_max_FC4, sram2_height, IA_rows, p_NonLinear_Statistics, params, 4, args.partition_mode, False, True)
             latency_acc1(seg_latency, Statistics, D)
             latency_acc1(seg_latency, FC_Statistics, D)
             latency_acc1(nonlinear_latency, NonLinear_Statistics, D)
@@ -1940,8 +2146,8 @@ def simulation(args, requests_pool, Statistics, FC_Statistics, MH_Statistics, No
             if debug_f:
                 seg_latency.dump_portion("SEG")
                 Statistics.latency.dump_portion("total")
-                NonLinear_Statistics.latency.dump_portion("nonlinear")
-                FC_Statistics.latency.dump_portion("FC4")
+                # NonLinear_Statistics.latency.dump_portion("nonlinear")
+                # FC_Statistics.latency.dump_portion("FC4")
             # if debug_on:
             #     seg_latency.dump()
             #     Statistics.dump()
@@ -2002,8 +2208,8 @@ def simulation(args, requests_pool, Statistics, FC_Statistics, MH_Statistics, No
                     
             group_jobs = [0] * (die_num if MH_alg_level_mode == 0 else N)
         
-            # if rounds >= 3:
-            #     break
+            if rounds >= 3:
+                break
             # if once:
             #     break
             # round_Stats.latency.dump_portion(rounds)
@@ -2071,7 +2277,7 @@ def simulation(args, requests_pool, Statistics, FC_Statistics, MH_Statistics, No
                 #     print(f"IA rows: {IA_rows}")
                          
                 """ LN1 """
-                seg_latency = LayerNorm_latency(IA_rows, embedding_dim, die_num, N, mac_lane, mac_num, W, sram2_height, params)
+                seg_latency = LayerNorm_latency(IA_rows, embedding_dim, die_num, N, mac_lane, mac_num, W if args.psum_mode == 0 else W_max_FC123, sram2_height, params, args.partition_mode)
                 latency_acc1(seg_latency, Statistics, D)
                 latency_acc1(seg_latency, NonLinear_Statistics, D)
                 latency_acc1(seg_latency, p_NonLinear_Statistics[0], D)
@@ -2084,7 +2290,8 @@ def simulation(args, requests_pool, Statistics, FC_Statistics, MH_Statistics, No
                 # if debug_on:
                 #     print("------------- FC1 -------------")
                 # seg_latency = stage_latency(die_num, N, 3 * embedding_dim, embedding_dim, mac_lane, mac_num, 1, sram2_height, IA_rows, debug_on)
-                (seg_latency, nonlinear_latency) = stage_latency(die_num, N, 3 * embedding_dim, embedding_dim, mac_lane, mac_num, W, sram2_height, IA_rows, p_NonLinear_Statistics, params, 1, True, False)
+                (seg_latency, nonlinear_latency) = stage_latency(die_num, N, 3 * embedding_dim, embedding_dim, mac_lane, mac_num, 
+                                                                    W if args.psum_mode == 0 else W_max_FC123, sram2_height, IA_rows, p_NonLinear_Statistics, params, 1, args.partition_mode, True, False)
                 latency_acc1(seg_latency, Statistics, D)
                 latency_acc1(seg_latency, FC_Statistics, D)
                 latency_acc1(nonlinear_latency, NonLinear_Statistics, D)
@@ -2130,7 +2337,8 @@ def simulation(args, requests_pool, Statistics, FC_Statistics, MH_Statistics, No
                 # if debug_on:
                 #     print("------------- FC2 -------------")
                 # seg_latency = stage_latency(die_num, N, embedding_dim, embedding_dim, mac_lane, mac_num, 1, sram2_height, IA_rows, debug_on)
-                (seg_latency, nonlinear_latency) = stage_latency(die_num, N, embedding_dim, embedding_dim, mac_lane, mac_num, W, sram2_height, IA_rows, p_NonLinear_Statistics, params, 2, False, True)
+                (seg_latency, nonlinear_latency) = stage_latency(die_num, N, embedding_dim, embedding_dim, mac_lane, mac_num, 
+                                                                    W if args.psum_mode == 0 else W_max_FC123, sram2_height, IA_rows, p_NonLinear_Statistics, params, 2, args.partition_mode, False, True)
                 latency_acc1(seg_latency, Statistics, D)
                 latency_acc1(seg_latency, FC_Statistics, D)
                 latency_acc1(nonlinear_latency, NonLinear_Statistics, D)
@@ -2140,7 +2348,7 @@ def simulation(args, requests_pool, Statistics, FC_Statistics, MH_Statistics, No
                 #     Statistics.dump()
                 
                 """ LN2 """
-                seg_latency = LayerNorm_latency(IA_rows, embedding_dim, die_num, N, mac_lane, mac_num, W, sram2_height, params)
+                seg_latency = LayerNorm_latency(IA_rows, embedding_dim, die_num, N, mac_lane, mac_num, W if args.psum_mode == 0 else W_max_FC123, sram2_height, params, args.partition_mode)
                 latency_acc1(seg_latency, Statistics, D)
                 latency_acc1(seg_latency, NonLinear_Statistics, D)
                 latency_acc1(seg_latency, p_NonLinear_Statistics[0], D)
@@ -2150,7 +2358,8 @@ def simulation(args, requests_pool, Statistics, FC_Statistics, MH_Statistics, No
                 # if debug_on:
                 #     print("------------- FC3 -------------")
                 # seg_latency = stage_latency(die_num, N, 4 * embedding_dim, embedding_dim, mac_lane, mac_num, 1, sram2_height, IA_rows, debug_on)
-                (seg_latency, nonlinear_latency) = stage_latency(die_num, N, 4 * embedding_dim, embedding_dim, mac_lane, mac_num, W, sram2_height, IA_rows, p_NonLinear_Statistics, params, 3, True, False)
+                (seg_latency, nonlinear_latency) = stage_latency(die_num, N, 4 * embedding_dim, embedding_dim, mac_lane, mac_num, 
+                                                                    W if args.psum_mode == 0 else W_max_FC123, sram2_height, IA_rows, p_NonLinear_Statistics, params, 3, args.partition_mode, True, False)
                 latency_acc1(seg_latency, Statistics, D)
                 latency_acc1(seg_latency, FC_Statistics, D)
                 latency_acc1(nonlinear_latency, NonLinear_Statistics, D)
@@ -2164,7 +2373,8 @@ def simulation(args, requests_pool, Statistics, FC_Statistics, MH_Statistics, No
                 # if debug_on:
                 #     print("------------- FC4 -------------")
                 # seg_latency = stage_latency(die_num, N, embedding_dim, 4 * embedding_dim, mac_lane, mac_num, 1, sram2_height, IA_rows, debug_on)
-                (seg_latency, nonlinear_latency) = stage_latency(die_num, N, embedding_dim, 4 * embedding_dim, mac_lane, mac_num, W, sram2_height, IA_rows, p_NonLinear_Statistics, params, 4, False, True)
+                (seg_latency, nonlinear_latency) = stage_latency(die_num, N, embedding_dim, 4 * embedding_dim, mac_lane, mac_num, 
+                                                                    W if args.psum_mode == 0 else W_max_FC4, sram2_height, IA_rows, p_NonLinear_Statistics, params, 4, args.partition_mode, False, True)
                 latency_acc1(seg_latency, Statistics, D)
                 latency_acc1(seg_latency, FC_Statistics, D)
                 latency_acc1(nonlinear_latency, NonLinear_Statistics, D)

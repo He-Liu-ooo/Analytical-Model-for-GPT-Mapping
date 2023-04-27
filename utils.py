@@ -15,13 +15,13 @@ class Stats:
     def dump(self, mode, group_num=1):
         print("------------ dump " + mode + " stats ------------")
         self.latency.dump()
-        print(f"peak static memory usage: {self.peak_static_mem}")
-        print(f"peak dynamic memory usage: {self.peak_dynamic_mem}")
-        print(f"peak IA usage: {self.peak_IA}")
-        print(f"per group peak dynamic memory usage: {self.peak_dynamic_mem_per_group}")
-        print(f"per group peak static memory usage: {self.peak_static_mem / group_num}")
+        print(f"peak static memory usage:                   {self.peak_static_mem}")
+        print(f"peak dynamic memory usage:                  {self.peak_dynamic_mem}")
+        print(f"peak IA usage:                              {self.peak_IA}") 
+        print(f"per group peak dynamic memory usage:        {self.peak_dynamic_mem_per_group}")
+        print(f"per group peak static memory usage:         {self.peak_static_mem / group_num}")
         print(f"per group peak static+dynamic memory usage: {self.peak_static_mem / group_num + self.peak_dynamic_mem_per_group}")
-        print(f"load balance: {self.load_balance}")
+        print(f"load balance:                               {self.load_balance}")
     
 class latency:
     def __init__(self):
@@ -45,15 +45,16 @@ class latency:
         IA_loading_LN: latency of loading and write back IA in LN
         IA_loading_split_concat: latency of loading and write back IA for split head and concat
         
-        NoC_latency_FC_partialsum: latency from FC adding results from all core together
-        NoC_latency_IA_rotation: when IA rotation, data should be collected from all cores first then send to other dies
-        NoC_latency_LN: NoC latency of LayerNorm
-        NoC_latency_split_concat: NoC latency of split & concat, before sending data to other dies, we need to collect them from all cores
-        NoC_latency_softmax: NoC latency of softmax
-        NoP_latency_IA_rotation: latency of IA routing during IA rotation of FC
-        NoP_latency_LN: NoP latency of LayerNorm
-        NoP_latency_split_concat: NoP latency of split & concat
-        NoP_latency_softmax: NoP latency of softmax
+        NoC_transactions_FC_partialsum: latency from FC adding results from all core together
+        NoC_transactions_FC_weight: latency of routing weights from a CH to a core not directly underneath it 
+        NoC_transactions_IA_rotation: when IA rotation, data should be collected from all cores first then send to other dies
+        NoC_transactions_LN: NoC latency of LayerNorm
+        NoC_transactions_split_concat: NoC latency of split & concat, before sending data to other dies, we need to collect them from all cores
+        NoC_transactions_softmax: NoC latency of softmax
+        NoP_transactions_IA_rotation: latency of IA routing during IA rotation of FC
+        NoP_transactions_LN: NoP latency of LayerNorm
+        NoP_transactions_split_concat: NoP latency of split & concat
+        NoP_transactions_softmax: NoP latency of softmax
         
         NoC_transactions: number data need to be transferred in NoC, in the unit of BYTE
         NoP_transactions: number data need to be transferred in NoP, in the unit of BYTE
@@ -123,6 +124,7 @@ class latency:
         
         self.NoC_transactions = 0
         self.NoC_transactions_FC_partialsum = 0
+        self.NoC_transactions_FC_weight = 0
         self.NoC_transactions_IA_rotation = 0
         self.NoC_transactions_LN = 0
         self.NoC_transactions_split_concat = 0
@@ -162,6 +164,7 @@ class latency:
         self.NoC_transactions *= N
         self.NoP_transactions *= N
         self.NoC_transactions_FC_partialsum *= N
+        self.NoC_transactions_FC_weight *= N
         self.NoC_transactions_IA_rotation *= N
         self.NoC_transactions_LN *= N
         self.NoC_transactions_split_concat *= N
@@ -425,23 +428,23 @@ class latency:
         
     def dump(self):
         print("---------- dump latencys -----------")
-        print(f"cal: {self.cal_latency}")
-        print(f"weight_loading: {self.weight_loading_latency}")
+        print(f"cal:                    {self.cal_latency}")
+        print(f"weight_loading:         {self.weight_loading_latency}")
         print(f"dynamic_weight_loading: {self.dynamic_weight_loading_latency}")
-        print(f"IA_loading: {self.IA_loading_latency}")
-        print(f"ppu: {self.ppu_latency}")
+        print(f"IA_loading:             {self.IA_loading_latency}")
+        print(f"ppu:                    {self.ppu_latency}")
         # print(f"NoC: {self.NoC_latency}")
         # print(f"NoP: {self.NoP_latency}")
-        print(f"NoC: {self.NoC_transactions}")
-        print(f"NoP: {self.NoP_transactions}")
+        print(f"NoC:                    {self.NoC_transactions}")
+        print(f"NoP:                    {self.NoP_transactions}")
         
     def dump_portion(self, mode):
         print(f"---------- dump {mode} latency counts -----------")
-        print(f"cal: {self.cal}")
-        print(f"ppu: {self.ppu}")
-        print(f"weight_loading: {self.weight_loading}")
-        print(f"dynamic_weight_loading: {self.dynamic_weight_loading}")
-        print(f"IA_loading:                     {self.IA_loading}")
+        print(f"cal:                         {self.cal}")
+        print(f"ppu:                         {self.ppu}")
+        print(f"weight_loading:              {self.weight_loading}")
+        print(f"dynamic_weight_loading:      {self.dynamic_weight_loading}")
+        print(f"IA_loading:                  {self.IA_loading}")
         if self.IA_loading != 0:
             print(f"+ IA_loading_FC_operand:     {self.IA_loading_FC_operand}-{round(100 * self.IA_loading_FC_operand / self.IA_loading, 2)}%")
             print(f"+ IA_loading_FC_partialsum:  {self.IA_loading_FC_partialsum}-{round(100 * self.IA_loading_FC_partialsum / self.IA_loading, 2)}%")
@@ -465,21 +468,23 @@ class latency:
             print(f"+ IA_loading_LN:             {self.IA_loading_LN}")
             print(f"+ IA_loading_split_concat:   {self.IA_loading_split_concat}")
             
-        print(f"NoC_transactions:                     {self.NoC_transactions}")
+        print(f"NoC_transactions:            {self.NoC_transactions}")
         if self.NoC_transactions != 0:
             print(f"+ NoC_FC_partialsum:         {self.NoC_transactions_FC_partialsum}-{round(100 * self.NoC_transactions_FC_partialsum / self.NoC_transactions)}%")
+            print(f"+ NoC_FC_weight:             {self.NoC_transactions_FC_weight}-{round(100 * self.NoC_transactions_FC_weight / self.NoC_transactions)}%")
             print(f"+ NoC_IA_rotation:           {self.NoC_transactions_IA_rotation}-{round(100 * self.NoC_transactions_IA_rotation / self.NoC_transactions)}%")
             print(f"+ NoC_LN:                    {self.NoC_transactions_LN}-{round(100 * self.NoC_transactions_LN / self.NoC_transactions)}%")
             print(f"+ NoC_split_concat:          {self.NoC_transactions_split_concat}-{round(100 * self.NoC_transactions_split_concat / self.NoC_transactions)}%")
             print(f"+ NoC_softmax:               {self.NoC_transactions_softmax}-{round(100 * self.NoC_transactions_softmax / self.NoC_transactions)}%")
         else:
             print(f"+ NoC_FC_partialsum:         {self.NoC_transactions_FC_partialsum}")
+            print(f"+ NoC_FC_weight:             {self.NoC_transactions_FC_weight}")
             print(f"+ NoC_IA_rotation:           {self.NoC_transactions_IA_rotation}")
             print(f"+ NoC_LN:                    {self.NoC_transactions_LN}")
             print(f"+ NoC_split_concat:          {self.NoC_transactions_split_concat}")
             print(f"+ NoC_softmax:               {self.NoC_transactions_softmax}")
             
-        print(f"NoP_transactions:                     {self.NoP_transactions}")
+        print(f"NoP_transactions:            {self.NoP_transactions}")
         if self.NoP_transactions != 0:
             print(f"+ NoP_IA_rotation:           {self.NoP_transactions_IA_rotation}-{round(100 * self.NoP_transactions_IA_rotation / self.NoP_transactions)}%")
             print(f"+ NoP_split_concat:          {self.NoP_transactions_split_concat}-{round(100 * self.NoP_transactions_split_concat / self.NoP_transactions)}%")
